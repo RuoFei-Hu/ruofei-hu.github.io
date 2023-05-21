@@ -1,0 +1,513 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Go基本同步原语 | 飞飞的Blog</title>
+<link rel="shortcut icon" href="https://ruofei-hu.github.io/favicon.ico?v=1684694787815">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://ruofei-hu.github.io/styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="Go基本同步原语 | 飞飞的Blog - Atom Feed" href="https://ruofei-hu.github.io/atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="Go基本同步原语
+1.并发访问带来的问题
+
+比如多个 goroutine 并发更新同一个资源，
+
+同时更新计数器；
+同时更新用户的账户信息；
+秒杀系统；
+往同一个 buffer 中并发写入数据等等。
+
+
+如果没有互斥控制，就会出现一些异常情..." />
+    <meta name="keywords" content="go,sync" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://ruofei-hu.github.io">
+  <img class="avatar" src="https://ruofei-hu.github.io/images/avatar.png?v=1684694787815" alt="">
+  </a>
+  <h1 class="site-title">
+    飞飞的Blog
+  </h1>
+  <p class="site-description">
+    温故而知新，可以进步矣。
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              Go基本同步原语
+            </h2>
+            <div class="post-info">
+              <span>
+                2022-04-11
+              </span>
+              <span>
+                11 min read
+              </span>
+              
+                <a href="https://ruofei-hu.github.io/tag/ohj_y06Gy/" class="post-tag">
+                  # go
+                </a>
+              
+                <a href="https://ruofei-hu.github.io/tag/pxq5pAh5Qy/" class="post-tag">
+                  # sync
+                </a>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h1 id="go基本同步原语">Go基本同步原语</h1>
+<h3 id="1并发访问带来的问题">1.并发访问带来的问题</h3>
+<ul>
+<li>比如多个 goroutine 并发更新同一个资源，
+<ul>
+<li>同时更新计数器；</li>
+<li>同时更新用户的账户信息；</li>
+<li>秒杀系统；</li>
+<li>往同一个 buffer 中并发写入数据等等。</li>
+</ul>
+</li>
+<li>如果没有互斥控制，就会出现一些异常情况。
+<ul>
+<li>比如计数器的计数不准确</li>
+<li>用户的账户可能出现透支</li>
+<li>秒杀系统出现超卖</li>
+<li>buffer 中的数据混乱等等</li>
+</ul>
+</li>
+</ul>
+<h3 id="2如何解决并发带来的问题呢">2.如何解决并发带来的问题呢？</h3>
+<p>A：1. 人类本身是一个顺序生物（sequential creature），对于这种并发问题，本身就不敏感。所以解决并发问题 的本质，就是将并发问题在局部还原成串行问题，但是整体宏观上还是并发</p>
+<p>2.使用同步原语，可以将原本并发的问题，在局部顺序的执行。在Go语言中提供<code>Mutext</code>  互斥锁和<code>Channel</code>  这些并发原语。</p>
+<h3 id="3互斥锁的实现原理">3.互斥锁的实现原理</h3>
+<ol>
+<li>
+<p><strong>临界区</strong>（Critical section）<br>
+<a href="https://www.bilibili.com/video/BV1dY4y197xD/?spm_id_from=333.999.0.0&amp;vd_source=3ca0fff5b5a0c28addb4e8267370777c">强烈推荐JYY的操作系统</a>。</p>
+<ol>
+<li>
+<p>来自维基百科：<a href="https://zh.wikipedia.org/zh-cn/%E8%87%A8%E7%95%8C%E5%8D%80%E6%AE%B5">临界区段</a>指的是一个访问共享资源（例如：共享设备或是共享存储器）的程序片段，而这些共享资源又无法同时被多个<a href="https://zh.wikipedia.org/wiki/%E5%9F%B7%E8%A1%8C%E7%B7%92">线程</a>访问的特性。</p>
+<p>当有线程进入临界区段时，其他线程或是<a href="https://zh.wikipedia.org/wiki/%E8%A1%8C%E7%A8%8B">进程</a>必须等待（例如：bounded waiting 等待法），有一些同步的机制必须在临界区段的进入点与离开点实现，以确保这些共享资源是被<a href="https://zh.wikipedia.org/wiki/%E9%80%BB%E8%BE%91%E5%BC%82%E6%88%96">异或</a>的使用，例如：<a href="https://zh.wikipedia.org/wiki/Semaphore">semaphore</a>。</p>
+<p>只能被单一线程访问的设备，例如：<a href="https://zh.wikipedia.org/wiki/%E5%8D%B0%E8%A1%A8%E6%A9%9F">打印机</a>。</p>
+<p>一个最简单的实现方法就是当<a href="https://zh.wikipedia.org/wiki/%E5%9F%B7%E8%A1%8C%E7%B7%92">线程</a>（Thread）进入临界区段时，禁止改变处理器；在Single-Processor系统上，可以用“禁止中断（CLI）”来完成，避免发生<a href="https://zh.wikipedia.org/wiki/%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8">系统调用</a>（System Call）导致的<a href="https://zh.wikipedia.org/wiki/%E4%B8%8A%E4%B8%8B%E6%96%87%E4%BA%A4%E6%8F%9B">上下文切换</a>（Context switching）；当离开临界区段时，处理器回复原先的状态。</p>
+</li>
+<li>
+<p>来自Intel文档：<a href="https://www.intel.com/content/dam/develop/external/us/en/documents/2-2-2-e4-b8-b4-e7-95-8c-e5-8c-ba-180203.pdf">临界区(critical section)</a>是指<strong>包含有共享数据的一段代码，这些代码可能被多个线程访问 或修改</strong>。 临界区的存在就是为了保证当有一个线程在临界区内执行的时候，不能有其他任何线程被允许在临界区执行。</p>
+<p>每个临界区都有相应的进入区（<strong>entry section）<strong>和 退出区</strong>（exit section）。如下图所示：</strong><br>
+<img src="https://ruofei-hu.github.io/post-images/1681151940611.png" alt="" loading="lazy"></p>
+<p>设想有<strong>A、B</strong> 两个线程执行同一段代码，则在任意时刻至多只有一个线程在执行临界区内的代码。</p>
+<p>即：如果 <strong>A</strong> 线程在临界区执行，<strong>B</strong> 线程只能在进入区等待。</p>
+<p>只有当 <strong>A</strong> 线程执行完临界区代码并退出临界区，原先处于等待状态的 <strong>B</strong> 线程才能继续向下执行并进去临界区。</p>
+</li>
+</ol>
+</li>
+<li>
+<p>当<strong>同一时刻</strong>多个线程访问一段<strong>共享的代码</strong>的时候，就可能会造成并发的读写错误。为了解决这个问题我们需要用<code>Mutex</code> 维持一段临界区。使用<code>Mutex</code> 维护临界区，<code>Mutex</code>**规定临界区在同一时刻只能被一个线程访问。**后续的线程要么自旋，要么休眠等待符合条件的时刻再被系统唤醒。<br>
+<img src="https://ruofei-hu.github.io/post-images/1681151952476.png" alt="" loading="lazy"></p>
+</li>
+</ol>
+<h3 id="4同步原语适合的场景">4.同步原语适合的场景</h3>
+<ol>
+<li>
+<p>资源共享型。如果没有互斥锁会出现并发读写，就会导致 <code>(data race)</code> 数据竞争。</p>
+<ol>
+<li><code>Mutet</code> 互斥锁。保护临界区只能被一个程序访问。</li>
+<li><code>RWMutex</code> 读写互斥锁。
+<ol>
+<li>可读互斥锁,可以被多个程序拥有，提高读程序的并发，在读的同时，不允许写。</li>
+<li>可写互斥锁，只能被一个程序拥有，在写的同时，不允许读。</li>
+</ol>
+</li>
+</ol>
+</li>
+<li>
+<p>任务等待型。</p>
+<ol>
+<li><code>WaitGroup</code> 有大量的多个的<code>goroutine</code> 同时执行，需要互相等待<code>goroutine</code> 都完成，才继续下一步的操作。</li>
+<li><code>channel</code>  适合有一定规律或者先后顺序的；或者有互相等待或者依赖的<strong>顺序关系。</strong></li>
+</ol>
+</li>
+<li>
+<p>资源流动型。</p>
+<ol>
+<li>
+<p><code>channel</code> 适用于类似于消息队列。或者<code>goroutine</code> 之间的资源流动。</p>
+</li>
+<li>
+<p><a href="https://segmentfault.com/a/1190000017890174">互斥锁和Channel之间有自己是个的场景。</a></p>
+<ol>
+<li>
+<p><strong><code>mutex</code>的能力是数据不动，某段时间只给一个协程访问数据的权限擅长数据位置固定的场景</strong>，《Channel or Mutex》中给了2个数据不动场景：</p>
+<ol>
+<li>缓存</li>
+<li>状态</li>
+</ol>
+</li>
+<li>
+<p><strong><code>channel</code>的能力是让数据流动起来，擅长的是数据流动的场景。</strong></p>
+<p>《Channel or Mutex》中给了3个数据流动的场景：</p>
+<ol>
+<li>传递数据的所有权，即把某个数据发送给其他协程</li>
+<li>分发任务，每个任务都是一个数据</li>
+<li>交流异步结果，结果是一个数据</li>
+</ol>
+</li>
+</ol>
+</li>
+</ol>
+</li>
+</ol>
+<h3 id="5基本的同步原语">5.基本的同步原语</h3>
+<h4 id="1mutex的基本使用">1.<code>Mutex</code>的基本使用</h4>
+<ul>
+<li>
+<p>在 Go 标准库中，<code>package sync</code> 提供了互斥锁相关同步原语，这个 <code>sync</code> 还定义了一个 <code>Locker</code> 的<code>interface</code>，<code>Mutex</code> 实现了这个<code>interface</code>。</p>
+<pre><code>type Locker interface {
+    Lock()
+    Unlock()
+}
+</code></pre>
+<p><strong>互斥锁 Mutex 实现了两个方法 <code>Lock()</code> 和 <code>Unlock()</code>：进入临界区之前调用 <code>Lock</code> 方法，退出临界区的时候调用 <code>Unlock</code> 方法</strong>：</p>
+<pre><code>func(m *Mutex)Lock()
+func(m *Mutex)Unlock()
+</code></pre>
+<p>当<code>goroutine</code> 访问临界区时，必须调用<code>Lock</code> 方法，持有临界区的锁🔐，才可以进入临界区，其他访问临界区的<code>goroutine</code> 会阻塞，一直等待锁🔐的释放。等到之前的<code>goroutine</code> 调用<code>Unlock</code> 方法后，才会释放锁🔐，后续的<code>goroutine</code> 才有机会拥有锁。</p>
+</li>
+<li>
+<p>如果没有锁🔐，在并发访问的情况下数据会可能出现错误❎。</p>
+<pre><code>package main
+
+import (
+	&quot;fmt&quot;
+	&quot;sync&quot;
+)
+
+// 开启100个goroutine，每个goroutine对count进行100次加1操作。多运行几次，你会发现count有时候不等于10000。
+func main() {
+	count := 0
+	var wg sync.WaitGroup
+
+	wg.Add(10)
+	for i := 0; i &lt; 100; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j &lt; 100; j++ {
+				count++ // count这个变量就需要设置临界区，对它进行保护
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Println(count)
+}
+
+// Result :
+9903
+10000
+9878
+</code></pre>
+<p>每次运行都可能产生不同的数字，这是因为<code>count++</code> <strong>不是原子操作</strong>。所谓的原子操作<br>
+（atomic operation）意为&quot;不可被中断的一个或一系列操作&quot;，这个动作是不可再分的。</p>
+<p>对于<code>count++</code> 操作，它的执行过程是：</p>
+<ol>
+<li>从寄存器读取<code>count</code>数值；</li>
+<li>然后对变量<code>count</code> 进行加一操作；</li>
+<li>然后将改变后的值写入到寄存器中</li>
+</ol>
+<pre><code>// count++操作 在x86架构的的汇编代码
+    MOVQ    &quot;&quot;.count(SB), AX // 把count变量的值（存储在静态基址寄存器SB中）移动到寄存器AX中。
+    LEAQ    1(AX), CX        // 计算1加上AX的值的有效地址，并把它存储在寄存器CX中。这相当于把1加到AX并存储在CX中。
+    MOVQ    CX, &quot;&quot;.count(SB) // 把CX中的值移动回count变量。
+</code></pre>
+</li>
+<li>
+<p>Go团队针对并发产生的<code>data race</code>问题，也提供了相应的检测工具：<code>go race detecor</code> 。这个工具是基于<code>google</code>的**<code>[sanitizers](https://github.com/google/sanitizers)</code>** 实现的。你可以在编译、运行、测试的时候使用 <code>-race</code>  就<strong>有概率</strong>会发现<code>data race</code> 问题。如果发现了<code>data race</code>  这工具会详细的告诉你是哪个goroutine在哪一行进行读操作或者写操作，以及这个行为引起data race。</p>
+<pre><code class="language-bash">go run -race main.go
+==================
+WARNING: DATA RACE
+Read at 0x00c000136018 by goroutine 6:
+  main.main.func1()
+      /Users/user/main.go:17 +0x88
+
+Previous write at 0x00c000136018 by goroutine 7:
+  main.main.func1()
+       /Users/user/main.go:17 +0x88
+
+Goroutine 6 (running) created at:
+  main.main()
+       /Users/user/main.go:14 +0x70
+
+Goroutine 7 (finished) created at:
+  main.main()
+ /Users/user/main.go:14 +0x70
+==================
+9569
+Found 1 data race(s)
+exit status 66
+</code></pre>
+<p>但是这个race工具也具有它的局限性：由于race工具的实现机制，只能在程序实例对变量地址进行真实的访问时，才有可能检测到。所以在程序进行编译的时候是无法发现data race问题的，而且当程序运行以后，有些存在data race的部分数据段，因为没有实际的访问到，也是不能检测到的。而且加入data race检测是有损性能的 。通过 <code>go tool compile -race -S main.go   -S</code> 表示打印汇编代码到标准输出 。可以看到race工具通过在代码中加入一下data race 检测指令来监测data race的发生。</p>
+</li>
+<li>
+<p>同步原句就是为了解决data race而产生的。</p>
+<p>对于上方的示例，我们可以通过<code>mutex</code> 解决data race。使用<code>Mutex</code> 在并发访问的数据段设置临界区，从而避免data race。</p>
+<pre><code>package main
+
+import (
+	&quot;fmt&quot;
+	&quot;sync&quot;
+)
+
+func main() {
+	count := 0
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wg.Add(100)
+	for i := 0; i &lt; 100; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j &lt; 100; j++ {
+				mu.Lock()
+				count++ // 通过互斥锁对并发访问区域设置临界区，从而消除data race
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Println(count)
+}
+
+Result:
+go run -race main.go
+10000 //无任何警告信息
+</code></pre>
+<p><code>Mutex</code>  中的锁🔐是开箱即用的，不需要额外的初始化操作。</p>
+</li>
+<li>
+<p><code>Mutex</code>的一些常见用法：</p>
+<ol>
+<li>嵌入到结构体中。**如果嵌入的 struct 有多个字段，我们一般会把 Mutex 放在要控制的字段上面，然后使用空格把字段分隔开来。**用这种风格去写的话，逻辑会更清晰，也更易于维护。</li>
+</ol>
+<pre><code>type Counter struct {
+    mu    sync.Mutex
+    Count uint64
+}
+
+////////////////////////
+
+package main
+
+import (
+	&quot;fmt&quot;
+	&quot;sync&quot;
+)
+
+type Counter struct {
+	mu    sync.Mutex
+	Count uint64
+}
+
+func main() {
+	var counter Counter
+	var wg sync.WaitGroup
+	wg.Add(100)
+	for i := 0; i &lt; 100; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j &lt; 100; j++ {
+				counter.mu.Lock()
+				counter.Count++
+				counter.mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Println(counter.count)
+}
+
+</code></pre>
+</li>
+</ul>
+<ol start="2">
+<li>
+<p>还可以<strong>把获取锁、释放锁、计数加一的逻辑封装成一个方法</strong>，对外不需要暴露锁等逻辑：</p>
+<pre><code>package main
+
+import (
+	&quot;fmt&quot;
+	&quot;sync&quot;
+)
+
+// Counter 线程安全的计数器类型
+type Counter struct {
+	someString string
+
+	mu    sync.Mutex
+	count uint64
+}
+
+// Incr 加1的方法等同于写操作，内部使用互斥锁保护
+func (c *Counter) Incr() {
+	c.mu.Lock()
+	c.count++
+	c.mu.Unlock()
+}
+
+// Count 得到计数器的值等同于读操作，也需要锁保护
+func (c *Counter) Count() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+func main() {
+	var counter Counter
+	var wg sync.WaitGroup
+	wg.Add(100)
+	for i := 0; i &lt; 100; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j &lt; 100; j++ {
+				counter.Incr()
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Println(counter.count)
+}
+</code></pre>
+</li>
+</ol>
+<h4 id="2mutex-的演化史">2.<code>Mutex</code> 的演化史</h4>
+<p>TBD</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li><a href="#go%E5%9F%BA%E6%9C%AC%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD">Go基本同步原语</a><br>
+*
+<ul>
+<li><a href="#1%E5%B9%B6%E5%8F%91%E8%AE%BF%E9%97%AE%E5%B8%A6%E6%9D%A5%E7%9A%84%E9%97%AE%E9%A2%98">1.并发访问带来的问题</a></li>
+<li><a href="#2%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3%E5%B9%B6%E5%8F%91%E5%B8%A6%E6%9D%A5%E7%9A%84%E9%97%AE%E9%A2%98%E5%91%A2">2.如何解决并发带来的问题呢？</a></li>
+<li><a href="#3%E4%BA%92%E6%96%A5%E9%94%81%E7%9A%84%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86">3.互斥锁的实现原理</a></li>
+<li><a href="#4%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD%E9%80%82%E5%90%88%E7%9A%84%E5%9C%BA%E6%99%AF">4.同步原语适合的场景</a></li>
+<li><a href="#5%E5%9F%BA%E6%9C%AC%E7%9A%84%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD">5.基本的同步原语</a>
+<ul>
+<li><a href="#1mutex%E7%9A%84%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8">1.<code>Mutex</code>的基本使用</a></li>
+<li><a href="#2mutex-%E7%9A%84%E6%BC%94%E5%8C%96%E5%8F%B2">2.<code>Mutex</code> 的演化史</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://ruofei-hu.github.io/atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>

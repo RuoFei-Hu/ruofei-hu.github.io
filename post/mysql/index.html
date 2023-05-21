@@ -1,0 +1,1070 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title> MySQL数据库调优知识 | 飞飞的Blog</title>
+<link rel="shortcut icon" href="https://ruofei-hu.github.io/favicon.ico?v=1684694787815">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://ruofei-hu.github.io/styles/main.css">
+<link rel="alternate" type="application/atom+xml" title=" MySQL数据库调优知识 | 飞飞的Blog - Atom Feed" href="https://ruofei-hu.github.io/atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="MySQL数据库调优知识
+
+如果出现排版错乱可以点击我的Notion链接🔗
+
+首先，我们需要确定一个基调：数据库建立索引，是为了减少磁盘的I/O次数，从而提升查询速度。（因为从磁盘I/O比从内存中读取数据太耗时了。） 我们数据调优所做的一..." />
+    <meta name="keywords" content="mysql" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://ruofei-hu.github.io">
+  <img class="avatar" src="https://ruofei-hu.github.io/images/avatar.png?v=1684694787815" alt="">
+  </a>
+  <h1 class="site-title">
+    飞飞的Blog
+  </h1>
+  <p class="site-description">
+    温故而知新，可以进步矣。
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+               MySQL数据库调优知识
+            </h2>
+            <div class="post-info">
+              <span>
+                2023-04-11
+              </span>
+              <span>
+                43 min read
+              </span>
+              
+                <a href="https://ruofei-hu.github.io/tag/DLOxtP-nN/" class="post-tag">
+                  # mysql
+                </a>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h1 id="mysql数据库调优知识">MySQL数据库调优知识</h1>
+<blockquote>
+<p>如果出现排版错乱可以点击<a href="https://www.notion.so/ruofei-hu/MySQL-76ecbab0a7ce4d85a4607ceff569c5b5?pvs=4">我的Notion链接🔗</a></p>
+</blockquote>
+<p><strong>首先，我们需要确定一个基调：数据库建立索引，是为了减少磁盘的I/O次数，从而提升查询速度。（因为从磁盘I/O比从内存中读取数据太耗时了。）</strong> 我们数据调优所做的一切都是为了减少磁盘I/O。</p>
+<h2 id="1索引的介绍和索引的优缺点">1.索引的介绍和索引的优缺点</h2>
+<p>OK，我们来放一放官屁。<em>嘿嘿😋</em></p>
+<h3 id="11索引的概述">1.1索引的概述</h3>
+<ul>
+<li>MySQL官方对索引的定义为: <strong>索引(<strong>Index</strong>)是</strong>帮助MySQL高效获取数据的<strong>数据结构</strong> 。</li>
+<li><strong>索引的本质:</strong> 索引是数据结构。你可以简单理解为“排好序的快速查找数据结构”，满足特定查找算法。</li>
+</ul>
+<h3 id="12-优点">1.2 优点</h3>
+<ul>
+<li><strong>提高数据检索效率，降低数据库I/O成本。</strong> 这是最最最最主要的原因。</li>
+<li>通过创建<strong>唯一索引</strong>，保证数据库中每行数据的<strong>唯一性</strong>。</li>
+<li><strong>加速表与表之间的连接。<strong>换句人话就是，能提高有</strong>依赖关系</strong>的父子表之间的查询速度。</li>
+<li>数据进行<strong>分组或者排序</strong>的时候，能显著<strong>减少分组和排序的耗时</strong>，降低CPU的消耗。（小声BB：索引都已经排好序了，查起来能不快嘛！！！）</li>
+</ul>
+<h3 id="13-缺点">1.3 缺点</h3>
+<p>凡事都讲究个利弊，有舍才有得，讲究一个守恒，希望大家也都能<strong>work life balance。</strong> 好，那么建立索引付出的代价是什么呢？</p>
+<ul>
+<li>创建索引和后期维护索引是要<strong>耗费时间</strong>的，而且数据越多，耗费时间越长，成正比；</li>
+<li>索引是要<strong>占用磁盘空间</strong>的，是<strong>存放在磁盘上</strong>的。索引越多，占用的磁盘空间越多，但是并不是索引越多越好；</li>
+<li>索引<strong>提高了数据检索的速度</strong>，但是当你对数据有改动（增减、删除、修改）的时候，索引也得去动态的维护，大大<strong>降低了数据维护的速度</strong>。</li>
+</ul>
+<h2 id="2索引的数据结构的推演innodb存储引擎">2.索引的数据结构的推演「InnoDB存储引擎」</h2>
+<p>我们目的明确，寻找一个能存储<strong>一定数量级数据</strong>而且<strong>读取磁盘I/O次数较少</strong>的<strong>数据结构</strong>。OK，索引的进化有了两个明确的目标：<strong>一定数量</strong>和<strong>较少的磁盘I/O</strong>。 让我们开始进化！！！<em>此时应该响起数码宝贝主题曲！😋</em></p>
+<p><strong>现在我们要做这个查询：</strong></p>
+<pre><code class="language-sql">SELECT [列名列表] FROM 表名 WHERE 列名 = xxx;
+</code></pre>
+<h3 id="21-无索引的阶段">2.1 无索引的阶段</h3>
+<p>在没有索引的阶段，查询符合条件的记录，你只能从数据库的<strong>第一个页沿着双向链表</strong>向下依次匹配，遍历所有的数据页，这种查找方式<strong>超级耗时</strong>。 <strong>举个栗子：😋</strong> ，你遇见个汉字不认识，翻开了新华字典去找，发现字典的目录页被撕了。找起来费时不？</p>
+<h3 id="22-设计索引">2.2 设计索引</h3>
+<p>让我们来创建一个表：</p>
+<pre><code class="language-sql">CREATE TABLE index_demo(
+        c1 INT,
+        c2 INT,
+        c3 CHAR(1),
+    PRIMARY KEY(c1)
+ ) ROW_FORMAT = Compact;
+</code></pre>
+<p><strong>注释：</strong> 表名：<code>idnex_demo</code>，字段：2个<code>int</code>类型的列，1个<code>char(1)</code>类型的列，主键：<code>c1</code>,存储的行格式：<code>Compact</code>。</p>
+<p><strong>简化版的Compact行格式示意图：</strong></p>
+<figure data-type="image" tabindex="1"><img src="https://ruofei-hu.github.io/post-images/1681183411658.png" alt="" loading="lazy"></figure>
+<ul>
+<li><code>record_type:</code> 记录的类型。
+<ul>
+<li><code>0</code>表示普通记录；</li>
+<li><code>1</code>表示目录项记录；</li>
+<li><code>2</code>表示最小记录；</li>
+<li><code>3</code>表示最大记录。</li>
+</ul>
+</li>
+<li><code>next_record:</code>表示下一条地址相对于本条记录的地址偏移量，我们用箭头来表明下一条记录是谁</li>
+<li><code>各列的值:</code>显示对应表<code>index_demo</code>的列的值，即<code>c1、c2、c3</code>。</li>
+<li><code>其他信息：</code>其他隐藏列的值以及记录的额外信息。</li>
+</ul>
+<p>将记录格式示意图的</p>
+<p><strong>其他信息项暂时去掉</strong></p>
+<p>并把它竖起来的效果就是这样：</p>
+<figure data-type="image" tabindex="2"><img src="https://ruofei-hu.github.io/post-images/1681183442255.png" alt="" loading="lazy"></figure>
+<p>当把记录放到页中时的示意图是：</p>
+<figure data-type="image" tabindex="3"><img src="https://ruofei-hu.github.io/post-images/1681183481838.png" alt="" loading="lazy"></figure>
+<h3 id="1-一个简单索引的设计方案">1. 一个简单索引的设计方案</h3>
+<p>无索引的时候，我们检索某个条件的记录，需要依次遍历，是因为各个页中的记录是无规律分布的。那么为了<strong>快速定位符合条件的记录在哪个数据页</strong>，我们需要为<strong>能帮助我们快速定位</strong>的<strong>数据页</strong>建立一个目录。 这个目录需要遵循一下规则：</p>
+<ul>
+<li>
+<p>下一个数据页中用户记录的<strong>主键值</strong> <code>&gt;</code>上一个数据页中用户记录的<strong>主键值</strong></p>
+</li>
+<li>
+<p>为所有的数据页建立目录项 示意图：</p>
+</li>
+</ul>
+<figure data-type="image" tabindex="4"><img src="https://ruofei-hu.github.io/post-images/1681183491299.png" alt="" loading="lazy"></figure>
+<p><strong>注释：</strong> 以<code>页28</code>为例，它对应着<code>目录项2</code>，该目录项包含了该数据页的<strong>页号</strong><code>28</code>以及记录中的<strong>最小主键值</strong><code>5</code>。我们就可以把这几个<strong>目录项</strong>在物理存储器上连续存储(比如：数组)，我们就实现了根据<strong>主键值</strong>快速查询到某条记录的功能了。 **比如：**查询<code>主键值</code>为20的记录，具体需要分为两步：</p>
+<ol>
+<li>先从目录项中根据 <strong>二分法</strong> 快速定位出主键值为 20 的记录在 <strong>目录项3</strong> 中(因为 12 &lt; 20 &lt; 209 )，它对应的页是 <strong>页9</strong> 。</li>
+<li>再根据在页中查找记录的方式去 <strong>页9</strong> 中定位具体的记录。</li>
+</ol>
+<p>至此，针对数据页的一个简易目录就完成了，目录还有个别名：<strong>索引(Index)</strong></p>
+<h3 id="2-innodb中索引的方案">2. InnoDB中索引的方案</h3>
+<h3 id="1-第1次迭代主要针对目录项记录的页">1. 第1次迭代：主要针对<strong>目录项记录的页</strong></h3>
+<p>我们把之前使用到的</p>
+<p><strong>目录项记录</strong></p>
+<p>放到数据页中，示意图：</p>
+<figure data-type="image" tabindex="5"><img src="https://ruofei-hu.github.io/post-images/1681183500992.png" alt="" loading="lazy"></figure>
+<p><strong>注释：<strong>从示意图可知，我们为了存储</strong>目录项记录</strong>，特意分配了<strong>页号</strong>为<code>30</code>的数据页。在这里我们需要特地区分一个<code>目录项记录</code>和<code>用户记录</code>的<strong>不同点：</strong></p>
+<ul>
+<li><code>record_type</code><strong>值不同：</strong> <code>目录项记录</code>的<code>record_type</code>值为<code>1</code>，<code>用户记录</code>的<code>record_type</code>值为<code>0</code>。</li>
+<li><strong>记录中列的数量和内容不同：</strong><code>目录项记录</code>中只有<strong>主键值和页编号</strong>这两个列，<code>用户记录</code>中的有**用户自定义的列（数量不确定）**和<code>InnoDB</code><strong>添加的隐藏列</strong>。</li>
+<li><strong>关于记录头信息中</strong><code>min_rec_mask</code>的属性：在<code>存储目录项记录的页</code>中<code>主键值最小的</code> <code>目录项记录</code> 的<code>min_rec_mask</code>值为<code>1</code>,其余的记录的<code>min_rec_mask</code>的值为<code>0</code>。</li>
+</ul>
+<p><strong>相同点：</strong></p>
+<ul>
+<li><code>目录项记录</code>和<code>用户记录</code>使用的相同的数据页</li>
+<li>都会为主键值生成<code>Page_Direction</code>(页目录)，方便按照主键值检索时，可以使用<code>二分法</code>加快查询速度</li>
+</ul>
+<p><strong>举个栗子：</strong> 查找<strong>主键值</strong>为<code>20</code>的记录为样例。根据主键值检索记录的步骤如下：</p>
+<ol>
+<li>到<code>存储目录项记录</code>的页，也就是<code>页30</code>中通过<code>二分法</code>快速定位到记录所在的页。 <code>12 &lt; 20 &lt; 209</code>,所以定位到记录所在的数据页是<code>页9</code></li>
+<li>再到<code>存储用户记录</code>的<code>页9</code>中，根据<code>二分法</code>快速定位到<code>主键值</code>为<code>20</code>的用户记录。</li>
+</ol>
+<h3 id="2-第2次迭代多个目录项记录的数据页">2. 第2次迭代：多个目录项记录的数据页</h3>
+<figure data-type="image" tabindex="6"><img src="https://ruofei-hu.github.io/post-images/1681183511848.png" alt="" loading="lazy"></figure>
+<p>多目录项数据页示意图</p>
+<p><strong>注释：<strong>从示意图中，当我们插入</strong>主键值</strong>为<code>320</code>的<code>用户记录</code>时，需要分配两个新的数据页：</p>
+<ul>
+<li>为了存储<code>用户记录</code>分配了新的数据页<code>页31</code></li>
+<li>因为存储<code>目录项记录</code>的数据页<code>页30</code>容量已满(假设已满)，索引需要分配一个新的数据页<code>页32</code>来存储<code>页31</code>的目录项</li>
+</ul>
+<p>到目前为止，存储<code>目录项记录</code>的数据页已经有多个，那么检索记录的方式会有些许的变化。 <strong>以查找主键值20为样例：</strong></p>
+<ol>
+<li>先确定存储的<code>目录项记录</code>所在的页。 <code>页30</code>主键值的范围是<code>[1, 320)</code>,<code>页32</code>的主键值都是不小于320的，所以确定数据在<code>页30</code>中。</li>
+<li>然后通过<code>目录项记录页</code>确定<code>用户数据</code>真正所在的数据页</li>
+<li>最后在存储<code>用户记录</code>的数据页中找到相关的用户记录</li>
+</ol>
+<h3 id="3-第3次迭代存储目录项记录页的数据页">3. 第3次迭代：存储目录项记录页的数据页</h3>
+<figure data-type="image" tabindex="7"><img src="https://ruofei-hu.github.io/post-images/1681183602528.png" alt="" loading="lazy"></figure>
+<p>目录项记录页的数据页示意图</p>
+<p>从示意图可知，我们分配了一个数据页<code>页33</code>，是存储<code>目录项记录页</code>的数据页，其中的两条数据，分别代表<code>页30和页32</code>。如果检索主键值在<code>[1,320)</code>中，就应该到<code>页30</code>中去查询更详细的<code>目录项记录</code>，如果不小于<code>320</code>,就需要到<code>页32</code>中检索更详细的<code>目录项记录</code>。这中数据结构，称之为<code>B+树</code>。</p>
+<figure data-type="image" tabindex="8"><img src="https://ruofei-hu.github.io/post-images/1681183614902.png" alt="" loading="lazy"></figure>
+<h3 id="4-关于b树的一些知识点">4. 关于B+树的一些知识点</h3>
+<p>一个B+树的节点其实可以分成好多层，规定最下边的那层，也就是存放我们用户记录的那层为第 0 层， 之后依次往上加。之前我们做了一个非常极端的假设:存放用户记录的页 最多存放3条记录 ，存放目录项 记录的页 最多存放4条记录 。</p>
+<p><strong>但是</strong>真实环境中一个页存放的记录数量是非常大的，假设所有存放用户记录 的叶子节点代表的数据页可以存放 100条用户记录 ，所有存放目录项记录的内节点代表的数据页可以存 放 1000条目录项记录 ，那么:</p>
+<ul>
+<li>如果B+树只有1层，也就是只有1个用于存放用户记录的节点，最多能存放 100 条记录。</li>
+<li>如果B+树有2层，最多能存放<code>1000×100=10,0000</code> 条记录。</li>
+<li>如果B+树有3层，最多能存放 <code>1000×1000×100=1,0000,0000</code>条记录。</li>
+<li>如果B+树有4层，最多能存放<code>1000×1000×1000×100=1000,0000,0000</code>条记录。</li>
+</ul>
+<p>你的表里能存放 100000000000 条记录吗?所以一般情况下，我们 用到的B+树都不会超过4层 ，那我们 通过主键值去查找某条记录最多只需要做4个页面内的查找(查找3个目录项页和一个用户记录页)，又 因为在每个页面内有所谓的 Page Directory (页目录)，所以在页面内也可以通过 二分法 实现快速 定位记录。</p>
+<h3 id="23-常见的索引概念">2.3 常见的索引概念</h3>
+<p>索引按照物理方式分为：</p>
+<ul>
+<li>聚簇(聚集)索引</li>
+<li>非聚簇(非聚集)索引，又称为二级索引或者辅助索引</li>
+</ul>
+<figure data-type="image" tabindex="9"><img src="https://ruofei-hu.github.io/post-images/1681184106228.webp" alt="" loading="lazy"></figure>
+<h3 id="1-聚簇索引">1. 聚簇索引</h3>
+<p><strong>特征：</strong></p>
+<ul>
+<li>使用记录的<code>主键值</code>进行记录和页的排序
+<ul>
+<li><strong>页内</strong>的<code>用户记录</code>是按照主键值的大小顺序排成一个<strong>单向链表</strong></li>
+<li><strong>存放用户记录的页</strong>也是按照<code>用户记录</code>主键值的大小顺序排成一个<strong>双向链表</strong></li>
+<li><strong>存放目录项记录的数据页</strong>是分为<strong>不同的层次</strong>的。在同一层次的数据页也是根据<code>目录项记录</code>的主键值的大小排成一个<strong>双向链表</strong></li>
+</ul>
+</li>
+<li><code>B+树</code>的叶子节点存储的是<code>用户的完整记录</code>，所谓的<code>完整记录</code>包括记录中涉及到所有列的值，当然也包括<code>隐藏列</code></li>
+</ul>
+<p><strong>优点：</strong></p>
+<ul>
+<li><strong>访问数据更快。<strong>因为</strong>聚簇索引</strong>中索引和数据都保存在<strong>同一个</strong><code>B+</code>树中，所以聚簇索引比非聚簇索引访问数据更快</li>
+<li>聚簇索引针对主键值的<strong>排序查找</strong>和<strong>范围查找</strong>速度非常快</li>
+<li><strong>节省大量的I/O 操作</strong>。按照聚簇索引的排列顺序，查询<strong>一定范围的数据时</strong>，由于数据都是紧密相连(逻辑上)，所以数据库不用从多个块中读取数据</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li><strong>插入记录的速度严重依赖插入数据主键值的顺序</strong>。按照<strong>主键值</strong>大小顺序插入速度是最快的，否则的话将会出现严重的<strong>页分裂</strong>，严重影响性能。对于<code>InnoDB</code>表，一般都设置一个<strong>自增ID列</strong>为主键。</li>
+<li><code>更新主键的代价非常高。</code> 更新<code>主键值</code>将到导致行移动，对于<code>InnoDB</code>表，一般定义为主键不可更新。</li>
+<li><code>二级索引访问数据需要经过两次索引查找</code>。
+<ul>
+<li>第一次根据条件通过二级索引找到主键值</li>
+<li>然后再通过主键索引找到行数据</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-非聚簇索引二级索引-辅助索引">2. 非聚簇索引(二级索引、辅助索引)</h3>
+<figure data-type="image" tabindex="10"><img src="https://ruofei-hu.github.io/post-images/1681183634357.png" alt="" loading="lazy"></figure>
+<p>其中示意图中的<code>c1</code>为主键。 <strong>注释：<strong>我们涉及到了一个</strong>回表概念。<strong>这个</strong>二级索引</strong>是以<code>c2</code>列的值的大小构造的<code>B+树</code>,通过这个索引，我们只能检索到符合条件的记录的<code>主键值</code>，然后我们通过<code>二级索引</code>找到的<code>主键值</code>，再通过<code>聚簇索引</code>检索一遍，才能检索出我们需要的完整的用户记录。即：通过<code>c2</code>列的值，我们需要通过两颗<code>B+树</code>才能找到完整的用户记录。<strong>这一过程,我们称之为：回表</strong>。</p>
+<p><strong>Question：</strong> 为什么我们还需要一次 回表 操作呢?直接把完整的用户记录放到叶子节点不OK吗? <strong>Answer：</strong> 叶子节点上的用户数据是比主键值的体积大许多的，如果每建一个二级索引，都将用户数据全部拷贝过来，将会占用非常大的磁盘空间。是非常不明智的。</p>
+<h3 id="3-联合索引">3. 联合索引</h3>
+<p>我们可以通过以多个列的大小作为排序规则，即：同时为多个列建立同一个联合索引。 <strong>Example：</strong> 我们让<code>B+</code>树按照<code>c2</code>和<code>c3</code>的大小进行排序，这里边包含两层含义：</p>
+<ul>
+<li>首先，先把<code>用户记录</code>、<code>目录项记录</code> 和数据页按照<code>c2</code>的大小进行排列</li>
+<li>在<code>c2</code>记录相同的情况下，再按照<code>c3</code>的大小顺序就行排列</li>
+</ul>
+<p><strong>注意：</strong> 以<code>c2</code>和<code>c3</code>列的大小为排序规则建立的<code>B+树</code>称为<strong>联合索引</strong>，其本质上也是一个<strong>二级索引</strong>，但是它与分别为<code>c2</code>和<code>c3</code>列单独建立的索引不同：</p>
+<ul>
+<li>建立<strong>联合索引</strong>只会建立<strong>一颗B+树</strong></li>
+<li>如果分别为<code>c2</code>和<code>c3</code>列分别建立索引，会生成<strong>两颗B+树</strong></li>
+</ul>
+<h3 id="24-innodb的b树的注意事项">2.4 InnoDB的B+树的注意事项</h3>
+<ul>
+<li>根页面的位置是不会发生变化的</li>
+<li>内节点(非叶子节点)目录项记录具有唯一性</li>
+<li>一个页面最少存储<strong>两条记录</strong></li>
+</ul>
+<h2 id="3-索引的代价">3. 索引的代价</h2>
+<p>建立索引能帮助我们提高检索的速度，但是也要在<strong>时间和空间上</strong>付出代价的，所以，可以建索引，但不能乱建索引。</p>
+<ul>
+<li>空间上的代价 每建立一个索引都要为它建立一棵B+树，每一棵B+树的每一个节点都是一个数据页，一个页默认会 占用 16KB 的存储空间，一棵很大的B+树由许多数据页组成，那就是很大的一片存储空间。</li>
+<li>时间上的代价
+<ul>
+<li>每次对表中的数据进行<strong>增加、删除、修改</strong>的时候，都需要去维护B+树</li>
+<li>B+树的每层节点都是按照索引列的值<strong>从小到大的顺序排序</strong>，从而形成了<strong>双向链表</strong>；不论叶子节点（<em>用户记录</em>），还是内节点（<em>目录项记录</em>）中的记录都是按照索引列的值从小到大的顺序，形成了一个单链表；而<strong>增、删、改</strong>操作会对节点和记录的排序造成破坏，索引存储引擎需要一些额外的时间进行<strong>记录移位、页面分裂、页面回收</strong>等操作用来维护节点和记录的排序。</li>
+<li>如果我们建立了很多索引，那么发生上述操作时，索引对应的B+树都要进行相关的维护操作，会有很大的性能开销。</li>
+</ul>
+</li>
+</ul>
+<h2 id="4-b树和b树的不同">4. B树和B+树的不同</h2>
+<ol>
+<li>有K个孩子节点就有K个关键字，孩子数量 = 关键字数量；在B树中，孩子节点 = 关键字 + 1</li>
+<li>非叶子节点的关键字也会同时存在于子节点中，并且在子节点中所有的关键字最大或最小</li>
+<li>非叶子节点仅用于索引，不保存数据记录，和用户记录相关的数据全部保存在叶子节点中；在B树中非叶子节点，既保存索引，也保存用户记录</li>
+<li>所有关键字都在叶子节点出现，叶子节点构成一个有序的单项链表，而且叶子本身按照关键字的大小从小到大顺序连接</li>
+</ol>
+<h2 id="5-索引的创建与设计原则">5. 索引的创建与设计原则</h2>
+<h3 id="51-索引的声明与使用">5.1 索引的声明与使用</h3>
+<h3 id="1-索引的分类">1. 索引的分类</h3>
+<p>MySQL的索引包括<code>普通索引</code>、<code>唯一性索引</code>、<code>全文索引</code>、<code>单列索引</code>、<code>多列索引</code>和<code>空间索引</code>等。我们需要按照一定的标准对索引进行分类：</p>
+<ul>
+<li>以<strong>功能逻辑</strong>为标准：主要分为4种，<strong>普通索引、唯一索引、主键索引、全文索引</strong>；</li>
+<li>以<strong>物理存储实现方式</strong>为标准：主要分为两种- 分别是<strong>聚簇索引和非聚簇索引。</strong></li>
+<li>从<strong>作用的字段个数</strong>划分：分为单列索引和联合索引，</li>
+</ul>
+<ol>
+<li>
+<p><strong>普通索引</strong></p>
+<p>创建普通索引的时候，不附加任何限制条件，只是为了提高查询效率。普通索引可以在任何数据类型上创建。</p>
+</li>
+<li>
+<p><strong>唯一性索引</strong></p>
+<p>使用<strong>UNIQUE参数</strong>可以设置索引为唯一索引。在创建唯一性索引的时候，需要限制该索引的值必须是唯一的，但是允许有空值，在一张表中可以允许存在多个唯一性索引</p>
+</li>
+<li>
+<p><strong>主键索引</strong></p>
+<p>主键索引就是一种特殊的唯一性索引，在唯一性索引的基础上增加了值不能为空的约束，也就是<code>not null + unique</code>，一张表中最多允许一个主键索引。 这是由主键索引的物理方式决定的，因为数据在文件中只能按照一种顺序进行存储。</p>
+</li>
+<li>
+<p><strong>单列索引</strong></p>
+<p>在表中的单个字段创建索引。单列索引只根据该字段进行索引。单列索引可以是普通索引，也可以是唯一性索引，还可以是全文索引。只需保证该索引只对应一个字段即可。一个表可以有多个单列索引。</p>
+</li>
+<li>
+<p><strong>多列索引（组合、联合）</strong></p>
+<p>多列索引是在表的多个字段组合上创建一个索引。该索引指向创建时对应的多个字段，可以通过这几个字段进行查询</p>
+</li>
+<li>
+<p><strong>全文索引</strong></p>
+</li>
+</ol>
+<h3 id="52-创建索引">5.2 创建索引</h3>
+<h3 id="1-在创建表的时候创建索引">1. 在创建表的时候创建索引</h3>
+<pre><code class="language-sql"># 第一种方式
+CREATE TABLE dept (
+dept_id INT PRIMARY KEY AUTO_INCREMENT,
+dept_name VARCHAR(20)
+);
+</code></pre>
+<p>在创建表的时候创建索引，具体格式如下：</p>
+<pre><code class="language-sql">CREATE TABLE table_name [col_name data_type] [UNIQUE | FULLTEXT | SPATIAL] [INDEX | KEY] [index_name] (col_name [length]) [ASC | DESC]
+</code></pre>
+<ul>
+<li><code>UNIQUE、FULLTEXT、SPATIAL</code>为可选参数，分别表示<strong>唯一索引、全文索引、空间索引；</strong></li>
+<li><code>INDEX</code>和<code>KEY</code>是同等功效，都可以用来创建索引</li>
+<li><code>index_name</code>指定索引名称，为可选参数。如果不指定，将默认字段名为索引的名称</li>
+<li><code>col_name</code>指定需要创建索引的字段列，这个字段列必须是表中包含的</li>
+<li><code>length</code>为可选参数，表示索引的长度，一般情况下，只有字符串类型的字段才需要指定长度</li>
+<li><code>ASC或DESC</code>指定索引升序存储或者降序存储</li>
+</ul>
+<ol>
+<li>
+<p><strong>创建普通索引</strong></p>
+<p>在book表中的year_publication字段上建立普通索引，SQL语句如下:</p>
+<pre><code class="language-sql">CREATE TABLE book(
+book_id INT ,
+book_name VARCHAR(100),
+authors VARCHAR(100),
+info VARCHAR(100) ,
+comment VARCHAR(100),
+year_publication YEAR,
+INDEX(year_publication)
+);
+</code></pre>
+</li>
+<li>
+<p><strong>创建唯一索引</strong></p>
+<pre><code class="language-sql">CREATE TABLE test1(
+id INT NOT NULL,
+name varchar(30) NOT NULL,
+UNIQUE INDEX uk_idx_id(id)
+);
+</code></pre>
+<pre><code class="language-sql"># 使用查看表结构
+SHOW CREATE TABLE;
+SHOW INDEX FROM test1； #  查看索引
+</code></pre>
+</li>
+<li>
+<p><strong>主键索引</strong></p>
+<p>设定为主键后数据库会自动建立索引，innodb为聚簇索引，语法:</p>
+<ul>
+<li>
+<p>随表一起建索引</p>
+<pre><code class="language-sql">CREATE TABLE student (
+  id INT(10) UNSIGNED  AUTO_INCREMENT ,
+  student_no VARCHAR(200),
+  student_name VARCHAR(200),
+  PRIMARY KEY(id)
+);
+</code></pre>
+</li>
+<li>
+<p>删除主键索引</p>
+<pre><code class="language-sql">ALTER TABLE student
+drop PRIMARY KEY ;
+</code></pre>
+</li>
+<li>
+<p>修改主键索引:必须先删除掉(drop)原索引，再新建(add)索引</p>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>创建单列索引</strong></p>
+<pre><code class="language-sql">CREATE TABLE test2(
+id INT NOT NULL,
+name CHAR(50) NULL,
+INDEX single_idx_name(name(20))
+);
+</code></pre>
+</li>
+<li>
+<p><strong>创建组合索引</strong></p>
+<p>创建表test3，在表中的id、name和age字段上建立组合索引，SQL语句如下:</p>
+<pre><code class="language-sql">CREATE TABLE test3(
+id INT(11) NOT NULL,
+name CHAR(30) NOT NULL,
+age INT(11) NOT NULL,
+info VARCHAR(255),
+INDEX multi_idx(id,name,age)
+);
+</code></pre>
+</li>
+<li>
+<p><strong>创建全文索引</strong> 创建表test4，在表中的info字段上建立全文索引，SQL语句如下:</p>
+<pre><code class="language-sql">CREATE TABLE test4(
+id INT NOT NULL,
+name CHAR(30) NOT NULL,
+age INT NOT NULL,
+info VARCHAR(255),
+FULLTEXT INDEX futxt_idx_info(info)
+) ENGINE=MyISAM;
+</code></pre>
+<p><em>在MySQL5.7及之后版本中可以不指定最后的ENGINE了，因为在此版本中InnoDB支持全文索引。</em></p>
+<pre><code class="language-sql"># 创建了一个给title和body字段添加全文索引的表
+CREATE TABLE articles (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR (200),
+    body TEXT,
+    FULLTEXT index (title, body)
+) ENGINE = INNODB ;
+</code></pre>
+<p>不同于<code>like</code>的查询方式：</p>
+<pre><code class="language-sql">SELECT * FROM papers WHERE content LIKE ‘%查询字符串%’;
+</code></pre>
+<p>全文索引采用的是match+against方式查询：</p>
+<pre><code class="language-sql">SELECT * FROM papers WHERE MATCH(title,content) AGAINST (‘查询字符串’);
+</code></pre>
+</li>
+</ol>
+<h3 id="2-在已经存在的表上创建索引">2. 在已经存在的表上创建索引</h3>
+<p>在已经存在的表中创建索引可以使用ALTER TABLE语句或者CREATE INDEX语句。</p>
+<ol>
+<li>
+<p><strong>使用Alter Table 语句创建索引</strong></p>
+<pre><code class="language-sql"> ALTER TABLE table_name ADD [UNIQUE | FULLTEXT | SPATIAL] [INDEX | KEY][index_name] (col_name[length],...) [ASC | DESC]
+</code></pre>
+</li>
+<li>
+<p><strong>使用</strong>CREATE INDEX<strong>创建索引</strong></p>
+<pre><code class="language-sql">CREATE [UNIQUE | FULLTEXT | SPATIAL] INDEX index_name ON table_name (col_name[length],...) [ASC | DESC]
+</code></pre>
+</li>
+</ol>
+<h3 id="3-删除索引">3. 删除索引</h3>
+<ol>
+<li>
+<p><strong>使用Alter Table 删除索引</strong></p>
+<pre><code class="language-sql">ALTER TABLE table_name DROP INDEX index_name;
+</code></pre>
+</li>
+<li>
+<p><strong>使用</strong>DROP INDEX<strong>语句删除索引</strong></p>
+<pre><code class="language-sql">DROP INDEX index_name ON table_name;
+</code></pre>
+</li>
+</ol>
+<h3 id="53-索引的设计原则">5.3 索引的设计原则</h3>
+<h3 id="1-哪些情况适合创建索引">1. 哪些情况适合创建索引</h3>
+<ol>
+<li>
+<p><strong>字段的值有唯一性限制</strong></p>
+<p>业务上具有唯一特性的字段，即使是组合字段，也必须建成唯一索引。(来源:Alibaba)</p>
+<p>说明:不要以为唯一索引影响了 insert 速度，这个速度损耗可以忽略，但提高查找速度是明显的。</p>
+</li>
+<li>
+<p><strong>频繁作为WHERE条件的字段</strong></p>
+<p>某个字段在SELECT语句的 WHERE 条件中经常被使用到，那么就需要给这个字段创建索引了。尤其是在</p>
+<p>数据量大的情况下，创建普通索引就可以大幅提升数据查询的效率。</p>
+<p>比如student_info数据表(含100万条数据)，假设我们想要查询 student_id=123110 的用户信息。</p>
+</li>
+<li>
+<p><strong>经常进行GROUP BY 和 ORDER BY的列</strong></p>
+<p>索引就是让数据按照某种顺序进行存储或检索，因此当我们使用 GROUP BY 对数据进行分组查询，或者 使用 ORDER BY 对数据进行排序的时候，就需要 <strong>对分组或者排序的字段进行索引</strong> 。如果待排序的列有多 个，那么可以在这些列上建立 <strong>组合索引</strong> 。</p>
+</li>
+<li>
+<p>UPDATE**、**DELETE <strong>的</strong> WHERE <strong>条件列</strong></p>
+<p>对数据按照某个条件进行查询后再进行 UPDATE 或 DELETE 的操作，如果对 WHERE 字段创建了索引，就 能大幅提升效率。原理是因为我们需要先根据 WHERE 条件列检索出来这条记录，然后再对它进行更新或 删除。 <strong>如果进行更新的时候，更新的字段是非索引字段，提升的效率会更明显，这是因为非索引字段更 新不需要对索引进行维护。</strong></p>
+</li>
+<li>
+<p>DISTINCT <strong>字段需要创建索引</strong></p>
+<p>有时候我们需要对某个字段进行去重，使用 DISTINCT，那么对这个字段创建索引，也会提升查询效率。比如，我们想要查询课程表中不同的 student_id 都有哪些，如果我们没有对 student_id 创建索引，</p>
+<p>执行 SQL 语句:</p>
+<p><code>SELECT DISTINCT(student_id) FROM </code>student_info<code>;</code></p>
+<p>运行结果(600637 条记录，运行时间 0.683s ):</p>
+<p>如果我们对 student_id 创建索引，再执行 SQL 语句: <code>SELECT DISTINCT(student_id) FROM</code>student_info`;</p>
+<p>运行结果(600637 条记录，运行时间 0.010s ):</p>
+<p>你能看到 SQL 查询效率有了提升，同时显示出来的 student_id 还是按照 递增的顺序 进行展示的。这是因为索引会对数据按照某种顺序进行排序，所以在去重的时候也会快很多。</p>
+</li>
+<li>
+<p><strong>多表</strong> JOIN <strong>连接操作时，创建索引注意事项</strong></p>
+<ul>
+<li>
+<p>首先， 连接表的数量尽量不要超过 3 张 ，因为每增加一张表就相当于增加了一次嵌套的循环，数量级增</p>
+<p>长会非常快，严重影响查询的效率。</p>
+</li>
+<li>
+<p>其次，对 WHERE 条件创建索引，因为WHERE才是对数据条件的过滤。如果在数据量非常大的情况下，</p>
+<p>没有 WHERE 条件过滤是非常可怕的</p>
+</li>
+<li>
+<p>最后， 对用于连接的字段创建索引 ，并且该字段在多张表中的 类型必须一致 。比如 course_id 在</p>
+<p>student_info 表和 course 表中都为 int(11) 类型，而不能一个为 int 另一个为 varchar 类型。</p>
+</li>
+</ul>
+<p>举个例子，如果我们只对 student_id 创建索引，执行 SQL 语句:</p>
+<pre><code class="language-sql">SELECT course_id, name, student_info.student_id, course_name
+FROM student_info JOIN course
+ON student_info.course_id = course.course_id
+WHERE name = '462eed7ac6e791292a79';
+</code></pre>
+<p>运行结果(1 条数据，运行时间 0.189s ): 这里我们对 name 创建索引，再执行上面的 SQL 语句，运行时间为 0.002s 。</p>
+</li>
+<li>
+<p><strong>使用列的类型小的创建索引</strong></p>
+</li>
+<li>
+<p><strong>使用字符串前缀创建索引</strong></p>
+<p>创建一张商户表，因为地址字段比较长，在地址字段上建立前缀索引</p>
+<pre><code class="language-sql">create table shop(address varchar(120) not null);
+alter table shop add index(address(12));
+</code></pre>
+<p>问题是，截取多少呢?截取得多了，达不到节省索引存储空间的目的;截取得少了，重复内容太多，字 段的散列度(选择性)会降低。 <strong>怎么计算不同的长度的选择性呢?</strong></p>
+<p>首先，我们先看一下字段在全部数据中的选择度</p>
+<pre><code class="language-sql">select count(distinct address) / count(*) from shop;
+</code></pre>
+<p>通过不同长度去计算，与全表的选择性对比:</p>
+<p><strong>公式：</strong></p>
+<pre><code class="language-sql">count(distinct left(列名, 索引长度))/count(*)
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-sql">select count(distinct left(address,10)) / count(*) as sub10, -- 截取前10个字符的选择度 count(distinct left(address,15)) / count(*) as sub11, -- 截取前15个字符的选择度 count(distinct left(address,20)) / count(*) as sub12, -- 截取前20个字符的选择度 count(distinct left(address,25)) / count(*) as sub13 -- 截取前25个字符的选择度
+from shop;
+</code></pre>
+<p><strong>索引列前缀对排序的影响</strong></p>
+<blockquote>
+<p>【 强制 】在 varchar 字段上建立索引时，必须指定索引长度，没必要对全字段建立索引，根据实际文本 区分度决定索引长度。说明：索引的长度与区分度是一对矛盾体，一般对字符串类型数据，长度为 20 的索引，区分度会 高达 90% 以上，可以使用count(distinctleft(列名,索引长度))/count(*)的区分度来确定。</p>
+</blockquote>
+</li>
+<li>
+<p><strong>区分度高</strong>(<strong>散列性高</strong>)<strong>的列适合作为索引</strong></p>
+</li>
+<li>
+<p><strong>使用最频繁的列放到联合索引的左侧</strong> 这样也可以较少的建立一些索引。同时，由于“最左前缀原则”，可以增加联合索引的使用率。</p>
+</li>
+<li>
+<p><strong>在多个字段都要创建索引的情况下，联合索引优于单值索引</strong></p>
+</li>
+</ol>
+<h3 id="2-哪些情况不适合建立索引">2. 哪些情况不适合建立索引</h3>
+<ol>
+<li>
+<p><strong>在</strong>where<strong>中使用不到的字段，不要设置索引</strong></p>
+</li>
+<li>
+<p><strong>数据量小的表最好不要使用索引</strong></p>
+</li>
+<li>
+<p><strong>有大量重复数据的列上不要建立索引</strong></p>
+<blockquote>
+<p>结论:当数据重复度大，比如 高于 10% 的时候，也不需要对这个字段使用索引。</p>
+</blockquote>
+</li>
+<li>
+<p><strong>避免对经常更新的表创建过多的索引</strong></p>
+</li>
+<li>
+<p><strong>不建议用无序的值作为索引</strong></p>
+<blockquote>
+<p>例如身份证、UUID(在索引比较时需要转为ASCII，并且插入时可能造成页分裂)、MD5、HASH、无序长字 符串等。</p>
+</blockquote>
+</li>
+<li>
+<p><strong>删除不再使用或者很少使用的索引</strong></p>
+</li>
+<li>
+<p><strong>不要定义冗余或重复的索引</strong></p>
+<ul>
+<li>在联合索引中已经存在的索引，就不需要在单独建立索引了</li>
+<li>主键字段，不需要再单独建立唯一索引</li>
+</ul>
+</li>
+</ol>
+<h2 id="6-索引优化与查询优化">6. 索引优化与查询优化</h2>
+<h3 id="61-索引失效案例">6.1 索引失效案例</h3>
+<ol>
+<li>
+<p><strong>全值匹配</strong></p>
+</li>
+<li>
+<p><strong>最佳左前缀法则</strong></p>
+<blockquote>
+<p>拓展:Alibaba《Java开发手册》 索引文件具有 B-Tree 的最左前缀匹配特性，如果左边的值未确定，那么无法使用此索引。</p>
+</blockquote>
+</li>
+<li>
+<p><strong>主键插入顺序</strong> 如果插入的主键值不是按照顺序添加的，那么就会产生页分裂等现象</p>
+<blockquote>
+<p>把当前 页面分裂 成两个页面，把本页中的一些记录 移动到新创建的这个页中。页面分裂和记录移位意味着什么?意味着: 性能损耗 !所以如果我们想尽量 避免这样无谓的性能损耗，最好让插入的记录的 主键值依次递增 ，这样就不会发生这样的性能损耗了。 所以我们建议:让主键具有 AUTO_INCREMENT ，让存储引擎自己为表生成主键，而不是我们手动插入。</p>
+<p>我们自定义的主键列 id 拥有 AUTO_INCREMENT 属性，在插入记录时存储引擎会自动为我们填入自增的 主键值。这样的主键占用空间小，顺序写入，减少页分裂。</p>
+</blockquote>
+</li>
+<li>
+<p><strong>计算、函数、类型转换</strong>(<strong>自动或手动</strong>)<strong>导致索引失效</strong></p>
+</li>
+<li>
+<p><strong>类型转换导致索引失效</strong></p>
+</li>
+<li>
+<p><strong>范围条件右边的列索引失效</strong></p>
+<ul>
+<li>将范围查询条件放置语句最后</li>
+</ul>
+</li>
+<li>
+<p><strong>不等于</strong>(!= <strong>或者</strong>&lt;&gt;)索引失效</p>
+</li>
+<li>
+<p>is null<strong>可以使用索引，<strong>is not null</strong>无法使用索引</strong></p>
+</li>
+<li>
+<p>like<strong>以通配符</strong>%<strong>开头索引失效</strong></p>
+<blockquote>
+<p>拓展:Alibaba《Java开发手册》 【强制】页面搜索严禁左模糊或者全模糊，如果需要请走搜索引擎来解决。</p>
+</blockquote>
+</li>
+<li>
+<p>OR <strong>前后存在非索引的列，索引失效</strong></p>
+</li>
+<li>
+<p><strong>数据库和表的字符集统一使用</strong>utf8mb4</p>
+</li>
+<li>
+<p>统一使用utf8mb4( 5.5.3版本以上支持)兼容性更好，统一字符集可以避免由于字符集转换产生的乱码。不</p>
+<p>同的 字符集 进行比较前需要进行 转换 会造成索引失效。</p>
+</li>
+</ol>
+<h3 id="62-关联查询优化">6.2 关联查询优化</h3>
+<ol>
+<li>
+<p><strong>采用左外连接</strong></p>
+<p>小的结果集驱动大的结果集。【驱动表】，无法避免全表扫描。【被驱动表】建立索引，可以避免全表扫描</p>
+<p>由左连接特性决定的。LEFT JOIN 条件用于确定如何从右表搜索行，左边一定都有，所以 右边是我们的关键点,一定需要建立索引 。</p>
+</li>
+<li>
+<p><strong>采用内连接</strong></p>
+<p>换成 inner join(MySQL自动选择驱动表)，这优化主要是优化器考虑成本决定</p>
+</li>
+<li>
+<p>join<strong>语句原理</strong></p>
+<ul>
+<li>Index Nested-Loop Join</li>
+</ul>
+<p>我们来看一下这个语句：</p>
+<p><code>EXPLAIN SELECT * FROM t1 STRAIGHT_JOIN t2 ON (t1.a=t2.a);</code></p>
+<p>如果直接使用join语句，MySQL优化器可能会选择表t1或t2作为驱动表，这样会影响我们分析SQL语句的 执行过程。所以，为了便于分析执行过程中的性能问题，我改用 straight_join 让MySQL使用固定的 连接方式执行查询，这样优化器只会按照我们指定的方式去join。在这个语句里，t1 是驱动表，t2是被驱 动表。</p>
+<figure data-type="image" tabindex="11"><img src="https://ruofei-hu.github.io/post-images/1681183670626.png" alt="" loading="lazy"></figure>
+</li>
+</ol>
+<p>可以看到，在这条语句里，被驱动表t2的字段a上有索引，join过程用上了这个索引，因此这个语句的执 行流程是这样的:</p>
+<ol start="4">
+<li>从表t1中读入一行数据 R;</li>
+<li>从数据行R中，取出a字段到表t2里去查找;</li>
+<li>取出表t2中满足条件的行，跟R组成一行，作为结果集的一部分;</li>
+<li>重复执行步骤1到3，直到表t1的末尾循环结束。</li>
+</ol>
+<p>这个过程是先遍历表t1，然后根据从表t1中取出的每行数据中的a值，去表t2中查找满足条件的记录。在 形式上，这个过程就跟我们写程序时的嵌套查询类似，并且可以用上被驱动表的索引，所以我们称之为 “Index Nested-Loop Join”，简称NLJ。 它对应的流程图如下：</p>
+<figure data-type="image" tabindex="12"><img src="https://ruofei-hu.github.io/post-images/1681183677914.png" alt="" loading="lazy"></figure>
+<p>在这个流程里:</p>
+<ol>
+<li>
+<p>对驱动表t1做了全表扫描，这个过程需要扫描100行;</p>
+</li>
+<li>
+<p>而对于每一行R，根据a字段去表t2查找，走的是树搜索过程。由于我们构造的数据都是一一对应</p>
+<p>的，因此每次的搜索过程都只扫描一行，也是总共扫描100行;</p>
+</li>
+<li>
+<p>所以，整个执行流程，总扫描行数是200。</p>
+</li>
+</ol>
+<blockquote>
+<p>两个结论:</p>
+<ol>
+<li>使用join语句，性能比强行拆成多个单表执行SQL语句的性能要好;</li>
+<li>如果使用join语句的话，需要让小表做驱动表。</li>
+</ol>
+</blockquote>
+<ul>
+<li>
+<p>Simple Nested-Loop Join</p>
+<figure data-type="image" tabindex="13"><img src="https://ruofei-hu.github.io/post-images/1681183686137.png" alt="" loading="lazy"></figure>
+</li>
+<li>
+<p>Block Nested-Loop Join</p>
+</li>
+</ul>
+<figure data-type="image" tabindex="14"><img src="https://ruofei-hu.github.io/post-images/1681183697446.png" alt="" loading="lazy"></figure>
+<ul>
+<li><strong>在决定哪个表做驱动表的时候，应该是两个表按照各自的条件过滤，过滤完成之后，计算参与</strong>join<strong>的各</strong>个字段的总数据量，数据量小的那个表，就是**“小表”**，应该作为驱动表。</li>
+</ul>
+<h3 id="关联优化小结">关联优化小结</h3>
+<ul>
+<li>保证被驱动表的JOIN字段已经创建了索引</li>
+<li>需要JOIN 的字段，数据类型保持绝对一致</li>
+<li>LEFT JOIN 时，选择小表作为驱动表， 。减少外层循环的次数。</li>
+<li>INNER JOIN 时，MySQL会自动将 。选择相信MySQL优化策略。</li>
+<li>能够直接多表关联的尽量直接关联，不用子查询。(减少查询的趟数)</li>
+<li>不建议使用子查询，建议将子查询SQL拆开结合程序多次查询，或使用 JOIN 来代替子查询。</li>
+<li>衍生表建不了索引</li>
+</ul>
+<h3 id="63-子查询优化">6.3 子查询优化</h3>
+<p>使用子查询可以进行SELECT语句的嵌套查询，即一个SELECT查询的结果作为另一个SELECT语句的条件。<strong>子查询是MySQL的一项重要功能，可以帮助我们通过一个SQL语句实现比较复杂的查询。但是子查询的效率不高。</strong> 原因：</p>
+<ol>
+<li>执行子查询时，MySQL需要为内层查询语句的查询结果 <strong>建立一个临时表</strong>,然后外层查询语句从临时表中查询数据记录，然后等查询完毕再撤销这些临时表。这样会消耗过多的CPU和I/O资源，产生大量的慢查询</li>
+<li>子查询的结果集存储的临时表，不论是内存临时表还是磁盘临时表都<strong>不会存在索引</strong>，索引查询性能会产生一定的影响</li>
+<li>对于返回结果集比较大的子查询，其对查询性能的影响也就越大。</li>
+<li><strong>在</strong>MySQL<strong>中，可以使用连接(<strong>JOIN</strong>)查询来替代子查询。</strong> 连接查询 ，其 ，如果查询中使用索引的话，性能就会更好。</li>
+</ol>
+<blockquote>
+<p>结论:尽量不要使用NOT IN 或者 NOT EXISTS，用LEFT JOIN xxx ON xx WHERE xx IS NULL替代</p>
+</blockquote>
+<h3 id="64-排序优化">6.4 排序优化</h3>
+<p><strong>问题：在WHERE字段上索引，但是在ORDER BY字段上还要加索引？</strong></p>
+<p><strong>优化建议：</strong></p>
+<ol>
+<li>SQL 中，可以在 WHERE 子句和 ORDER BY 子句中使用索引，目的是在 WHERE 子句中<code>避免全表扫描</code>，在<code>ORDER BY</code>中使用索引是为了<code>避免使用FileSort排序</code>，当然，某些情况下全表扫描，或者 FileSort 排 序不一定比索引慢。但总的来说，我们还是要避免，以提高查询效率。</li>
+<li>尽量使用 Index 完成 ORDER BY 排序。如果 WHERE 和 ORDER BY 后面是相同的列就使用单索引列;如果不同就使用联合索引。</li>
+<li>无法使用 Index 时，需要对 FileSort 方式进行调优。</li>
+</ol>
+<pre><code class="language-sql">INDEX a_b_c(a,b,c)
+
+order by 能使用索引最左前缀
+- ORDER BY a
+- ORDER BY a,b
+- ORDER BY a,b,c
+- ORDER BY a DESC,b DESC,c DESC
+
+如果WHERE使用索引的最左前缀定义为常量，则order by 能使用索引
+- WHERE a = const ORDER BY b,c
+- WHERE a = const AND b = const ORDER BY c
+- WHERE a = const ORDER BY b,c
+- WHERE a = const AND b &gt; const ORDER BY b,c
+
+不能使用索引进行排序
+- ORDER BY a ASC,b DESC,c DESC /* 排序不一致 */
+- WHERE g = const ORDER BY b,c /*丢失a索引*/
+- WHERE a = const ORDER BY c /*丢失b索引*/
+- WHERE a = const ORDER BY a,d /*d不是索引的一部分*/
+- WHERE a in (...) ORDER BY b,c /*对于排序来说，多个相等条件也是范围查询*/
+</code></pre>
+<ul>
+<li>ORDER BY子句，尽量使用Index方式排序，避免使用FileSort方式排序。</li>
+<li>结论: type 是 ALL，即最坏的情况。Extra 里还出现了 Using filesort,也是最坏的情况。优化是必须 的。</li>
+</ul>
+<blockquote>
+<p>结论:</p>
+<ol>
+<li>两个索引同时存在，mysql自动选择最优的方案。(对于这个例子，mysql选择 idx_age_stuno_name)。但是， 随着数据量的变化，选择的索引也会随之变化的 。</li>
+<li><strong>当【范围条件】和【<strong>group by <strong>或者</strong> order by</strong>】的字段出现二选一时，优先观察条件字段的过 滤数量，如果过滤的数据足够多，而需要排序的数据并不多时，优先把索引放在范围字段 上。反之，亦然</strong></li>
+<li>Order by <strong>时</strong>select * <strong>是一个大忌。最好只</strong>Query<strong>需要的字段。</strong></li>
+</ol>
+</blockquote>
+<h3 id="65-group-by优化">6.5 GROUP BY优化</h3>
+<ul>
+<li>group by 使用索引的原则几乎跟order by一致 ，group by 即使没有过滤条件用到索引，也可以直接使用索引。</li>
+<li>group by 先排序再分组，遵照索引建的最佳左前缀法则， 当无法使用索引列，增大 max_length_for_sort_data 和 sort_buffer_size 参数的设置</li>
+<li>where效率高于having，能写在where限定的条件就不要写在having中了</li>
+<li>减少使用order by，和业务沟通能不排序就不排序，或将排序放到程序端去做。Order by、group by、distinct这些语句较为耗费CPU，数据库的CPU资源是极其宝贵的。</li>
+<li>包含了order by、group by、distinct这些查询的语句，where条件过滤出来的结果集请保持在1000行 以内，否则SQL会很慢。</li>
+</ul>
+<h3 id="66-优化分页查询">6.6 优化分页查询</h3>
+<h3 id="1-优化思路一">1. 优化思路一</h3>
+<p><strong>在索引上完成排序分页操作，最后根据主键关联回原表查询所需要的其他列内容。</strong></p>
+<pre><code class="language-sql">EXPLAIN SELECT * FROM student t,(SELECT id FROM student ORDER BY id LIMIT 2000000,10) a WHERE t.id = a.id;
+</code></pre>
+<figure data-type="image" tabindex="15"><img src="https://ruofei-hu.github.io/post-images/1681183712260.png" alt="" loading="lazy"></figure>
+<h3 id="2-优化思路二">2. 优化思路二</h3>
+<p><strong>该方案适用于主键自增的表，可以把Limit 查询转换成某个位置的查询 。</strong></p>
+<pre><code class="language-sql">EXPLAIN SELECT * FROM student WHERE id &gt; 2000000 LIMIT 10;
+</code></pre>
+<figure data-type="image" tabindex="16"><img src="https://ruofei-hu.github.io/post-images/1681183719375.png" alt="" loading="lazy"></figure>
+<h3 id="67-优先考虑覆盖索引">6.7 优先考虑覆盖索引</h3>
+<h3 id="1-什么是覆盖索引">1. 什么是覆盖索引？</h3>
+<p><strong>理解方式一</strong> :索引是高效找到行的一个方法，但是一般数据库也能使用索引找到一个列的数据，因此它不必读取整个行。毕竟索引叶子节点存储了它们索引的数据;当能通过读取索引就可以得到想要的数据，那就不需要读取行了。 <strong>一个索引包含了满足查询结果的数据就叫做覆盖索引。</strong></p>
+<p><strong>理解方式二</strong> :非聚簇复合索引的一种形式，它包括在查询里的SELECT、JOIN和WHERE子句用到的所有列 (即建索引的字段正好是覆盖查询条件中所涉及的字段)。</p>
+<p>简单说就是， 索引列+主键 包含 SELECT 到 FROM之间查询的列 。</p>
+<h3 id="2-覆盖索引的利弊">2. 覆盖索引的利弊</h3>
+<p><strong>优点：</strong></p>
+<ol>
+<li><strong>避免</strong>Innodb<strong>表进行索引的二次查询(回表)</strong></li>
+<li><strong>可以把随机</strong>IO<strong>变成顺序</strong>IO<strong>加快查询效率</strong></li>
+</ol>
+<p><strong>缺点：</strong></p>
+<p>索引字段的维护总是需要付出代价，因此，在建立冗余索引来支持覆盖索引时就需要权衡考虑了。这是业务 DBA，或者称为业务数据架构师的工作</p>
+<h3 id="68-索引下推">6.8 索引下推</h3>
+<p><strong>Index Condition Pushdown(ICP)是MySQL 5.6中新特性，是一种在存储引擎层使用索引过滤数据的一种优化方式。ICP可以减少存储引擎访问基表的次数以及MySQL服务器访问存储引擎的次数。</strong></p>
+<h3 id="1-使用icp前后的数据的扫描过程">1. 使用ICP前后的数据的扫描过程</h3>
+<p><strong>不使用ICP的扫描过程：</strong></p>
+<ol>
+<li>storage层:只将满足index key条件的索引记录对应的整行记录取出，返回给server层</li>
+<li>server 层:对返回的数据，使用后面的where条件过滤，直至返回最后一行。</li>
+</ol>
+<figure data-type="image" tabindex="17"><img src="https://ruofei-hu.github.io/post-images/1681183754596.png" alt="" loading="lazy"></figure>
+<figure data-type="image" tabindex="18"><img src="https://ruofei-hu.github.io/post-images/1681183763028.png" alt="" loading="lazy"></figure>
+<p><strong>使用ICP扫描的过程：</strong></p>
+<ul>
+<li>
+<p><strong>storage层：</strong></p>
+<p>首先将index key条件满足的索引记录区间确定，然后在索引上使用index filter进行过滤。将满足的index filter条件的索引记录才去回表取出整行记录返回server层。不满足index filter条件的索引记录丢弃，不回 表、也不会返回server层。</p>
+</li>
+<li>
+<p><strong>Server层：</strong></p>
+<p>对返回的数据，使用table filter条件做最后的过滤。</p>
+<figure data-type="image" tabindex="19"><img src="https://ruofei-hu.github.io/post-images/1681183774646.png" alt="" loading="lazy"></figure>
+</li>
+</ul>
+<figure data-type="image" tabindex="20"><img src="https://ruofei-hu.github.io/post-images/1681183781641.png" alt="" loading="lazy"></figure>
+<p><strong>使用前后成本的差距：</strong></p>
+<ul>
+<li>使用前，存储层多返回了需要被index filter过滤掉的整行记录</li>
+<li>使用ICP后，直接就去掉了不满足index filter条件的记录，省去了他们回表和传递到server层的成本。</li>
+<li>ICP的 加速效果 取决于在存储引擎内通过 ICP筛选 掉的数据的比例。</li>
+</ul>
+<h3 id="2-使用icp的条件">2. 使用ICP的条件</h3>
+<p><strong>ICP的使用条件：</strong></p>
+<ul>
+<li>只能用于二级索引(secondary index)</li>
+<li>explain显示的执行计划中type值(join 类型)为 range 、 ref 、 eq_ref 或者 ref_or_null 。</li>
+<li>并非全部where条件都可以用ICP筛选，如果where条件的字段不在索引列中，还是要读取整表的记录 到server端做where过滤。</li>
+<li>ICP可以用于MyISAM和InnnoDB存储引擎</li>
+<li>MySQL 5.6版本的不支持分区表的ICP功能，5.7版本的开始支持。</li>
+<li>当SQL使用覆盖索引时，不支持ICP优化方法。</li>
+</ul>
+<h3 id="3-icp使用案例">3. ICP使用案例</h3>
+<p><strong>案例一：</strong></p>
+<pre><code class="language-sql">SELECT * FROM tuser
+WHERE NAME LIKE '张%' AND age = 10 AND ismale = 1;
+</code></pre>
+<figure data-type="image" tabindex="21"><img src="https://ruofei-hu.github.io/post-images/1681183789710.png" alt="" loading="lazy"></figure>
+<h3 id="69-普通索引与唯一索引">6.9 普通索引与唯一索引</h3>
+<p><strong>问题：从性能角度来讲，我们是使用唯一索引还是使用普通索引？</strong></p>
+<p>假设，我们有一个主键列为ID的表，表中有字段k，并且在k上有索引，假设字段 k 上的值都不重复。 这个表的建表语句：</p>
+<pre><code class="language-sql">create table test(
+id int primary key,
+k int not null,
+name varchar(16),
+index (k)
+)engine=InnoDB;
+</code></pre>
+<p>表中R1~R5的(ID,k)值分别为(100,1)、(200,2)、(300,3)、(500,5)和(600,6)。</p>
+<ol>
+<li>
+<p><strong>查询过程：</strong></p>
+<p>假设，执行查询的语句是 <code>select id from test where k=5</code>。</p>
+<ul>
+<li>对于普通索引来说，查找到满足条件的第一个记录(5,500)后，需要查找下一个记录，直到碰到第一 个不满足k=5条件的记录。</li>
+<li>对于唯一索引来说，由于索引定义了唯一性，查找到第一个满足条件的记录后，就会停止继续检索。</li>
+</ul>
+<p>那么，这个不同带来的性能差距会有多少呢?答案是：<strong>微乎其微</strong></p>
+<ol>
+<li>
+<p><strong>更新过程：</strong> 为了说明<strong>普通索引</strong>和<strong>唯一索引</strong>对更新性能的影响，我们需要引入一个新的概念：<code>change buffer</code>。 当更新一个数据页的时候，如果数据页在内存中，就直接更新数据；如果更新的数据不在内存中，在不影响数据一致性的情况下，<strong>InnoDB会将这些更新操作缓存在Change Buffer中</strong>，这样就不需要从磁盘中读取这个数据了，在下次查询需要访问这个数据页的时候，将数据页读入内存，然后执行change buffer中与这个页有关的操作。通过这种方式就能保证这个数据逻辑的正确性。 将change buffer中的操作应用到原数据页，得到最新结果的过程称为<strong>merge</strong>，除了访问这个数据页会触发<code>merge</code>，系统后台定期<code>merge</code>，在数据库正常关闭的时候，也会执行<code>merge</code>.</p>
+</li>
+<li>
+<p>如果能够将更新操作先记录在change buffer，减少读取磁盘次数，语句的执行速度会得到明显的提升，而且， 数据读入内存是需要占用 buffer pool 的，所以这种方式还能够 避免占用内存 ，提高内存利用率。</p>
+<p><strong>唯一索引的更新不适用Change Buffer</strong>，实际上也只有普通索引可以使用。</p>
+</li>
+</ol>
+</li>
+</ol>
+<h3 id="change-buffer的使用场景">Change Buffer的使用场景</h3>
+<ol>
+<li>普通索引和唯一索引如何选择，其实这两类索引在查询能力上是没差别的，主要考虑的是<strong>更新性能</strong>的影响，建议选择<strong>普通索引</strong></li>
+<li>在实际使用中会发现， 普通索引 和<strong>change buffer</strong> 的配合使用，对于 数据量大 的表的更新优化 还是很明显的。</li>
+<li>如果所有的更新后面，都马上 伴随着对这个记录的查询 ，那么你应该 关闭change buffer 。而在 其他情况下，change buffer都能提升更新性能。</li>
+<li>由于唯一索引用不上change buffer的优化机制，因此如果 业务可以接受 ，从性能角度出发建议优 先考虑非唯一索引。但是如果“业务可能无法确保”的情况下，怎么处理呢?
+<ul>
+<li>首先， 业务正确性优先 。我们的前提是“业务代码已经保证不会写入重复数据”的情况下，讨论性能 问题。如果业务不能保证，或者业务就是要求数据库来做约束，那么没得选，必须创建唯一索引。 这种情况下，本节的意义在于，如果碰上了大量插入数据慢、内存命中率低的时候，给你多提供一 个排查思路。</li>
+<li>然后，在一些“ 归档库 ”的场景，你是可以考虑使用唯一索引的。比如，线上数据只需要保留半年， 然后历史数据保存在归档库。这时候，归档数据已经是确保没有唯一键冲突了。要提高归档效率， 可以考虑把表里面的唯一索引改成普通索引。</li>
+</ul>
+</li>
+</ol>
+<h3 id="610-其他查询的优化策略">6.10 其他查询的优化策略</h3>
+<h3 id="1-exist-和-in的区分">1. EXIST 和 IN的区分</h3>
+<p>哪种情况下应该使用 EXISTS，哪种情况应该用 IN。选择的标准是看能否使用表的索引吗</p>
+<h3 id="2-count与count具体字段效率">2. COUNT(*)<strong>与</strong>COUNT(<strong>具体字段</strong>)<strong>效率</strong></h3>
+<p>可以使用三种方式:SELECT COUNT(*)、SELECT COUNT(1)和SELECT COUNT(具体字段) ，使用这三者之间的查询效率是怎样的</p>
+<h3 id="3-关于select">3. <strong>关于</strong>SELECT(*)</h3>
+<p>在表查询中，建议明确字段，不要使用 * 作为查询的字段列表，推荐使用SELECT &lt;字段列表&gt; 查询。原因:</p>
+<p>1 MySQL 在解析的过程中，会通过 查询数据字典 将&quot;*&quot;按序转换成所有列名，这会大大的耗费资源和时 间。</p>
+<p>2 无法使用 覆盖索引</p>
+<h3 id="4-limit-1-对优化的影响">4. LIMIT 1 <strong>对优化的影响</strong></h3>
+<p>针对的是会扫描全表的SQL语句，如果你可以确定结果集只有一条，那么加上LIMIT 1的时候，当找 到一条结果的时候就不会继续扫描了，这样会加快查询速度。如果数据表已经对字段建立了唯一索引，那么可以通过索引进行查询，不会全表扫描的话，就不需要加 上LIMIT 1了。</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li><a href="#mysql%E6%95%B0%E6%8D%AE%E5%BA%93%E8%B0%83%E4%BC%98%E7%9F%A5%E8%AF%86">MySQL数据库调优知识</a>
+<ul>
+<li><a href="#1%E7%B4%A2%E5%BC%95%E7%9A%84%E4%BB%8B%E7%BB%8D%E5%92%8C%E7%B4%A2%E5%BC%95%E7%9A%84%E4%BC%98%E7%BC%BA%E7%82%B9">1.索引的介绍和索引的优缺点</a>
+<ul>
+<li><a href="#11%E7%B4%A2%E5%BC%95%E7%9A%84%E6%A6%82%E8%BF%B0">1.1索引的概述</a></li>
+<li><a href="#12-%E4%BC%98%E7%82%B9">1.2 优点</a></li>
+<li><a href="#13-%E7%BC%BA%E7%82%B9">1.3 缺点</a></li>
+</ul>
+</li>
+<li><a href="#2%E7%B4%A2%E5%BC%95%E7%9A%84%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E7%9A%84%E6%8E%A8%E6%BC%94innodb%E5%AD%98%E5%82%A8%E5%BC%95%E6%93%8E">2.索引的数据结构的推演「InnoDB存储引擎」</a>
+<ul>
+<li><a href="#21-%E6%97%A0%E7%B4%A2%E5%BC%95%E7%9A%84%E9%98%B6%E6%AE%B5">2.1 无索引的阶段</a></li>
+<li><a href="#22-%E8%AE%BE%E8%AE%A1%E7%B4%A2%E5%BC%95">2.2 设计索引</a></li>
+<li><a href="#1-%E4%B8%80%E4%B8%AA%E7%AE%80%E5%8D%95%E7%B4%A2%E5%BC%95%E7%9A%84%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88">1. 一个简单索引的设计方案</a></li>
+<li><a href="#2-innodb%E4%B8%AD%E7%B4%A2%E5%BC%95%E7%9A%84%E6%96%B9%E6%A1%88">2. InnoDB中索引的方案</a></li>
+<li><a href="#1-%E7%AC%AC1%E6%AC%A1%E8%BF%AD%E4%BB%A3%E4%B8%BB%E8%A6%81%E9%92%88%E5%AF%B9%E7%9B%AE%E5%BD%95%E9%A1%B9%E8%AE%B0%E5%BD%95%E7%9A%84%E9%A1%B5">1. 第1次迭代：主要针对<strong>目录项记录的页</strong></a></li>
+<li><a href="#2-%E7%AC%AC2%E6%AC%A1%E8%BF%AD%E4%BB%A3%E5%A4%9A%E4%B8%AA%E7%9B%AE%E5%BD%95%E9%A1%B9%E8%AE%B0%E5%BD%95%E7%9A%84%E6%95%B0%E6%8D%AE%E9%A1%B5">2. 第2次迭代：多个目录项记录的数据页</a></li>
+<li><a href="#3-%E7%AC%AC3%E6%AC%A1%E8%BF%AD%E4%BB%A3%E5%AD%98%E5%82%A8%E7%9B%AE%E5%BD%95%E9%A1%B9%E8%AE%B0%E5%BD%95%E9%A1%B5%E7%9A%84%E6%95%B0%E6%8D%AE%E9%A1%B5">3. 第3次迭代：存储目录项记录页的数据页</a></li>
+<li><a href="#4-%E5%85%B3%E4%BA%8Eb%E6%A0%91%E7%9A%84%E4%B8%80%E4%BA%9B%E7%9F%A5%E8%AF%86%E7%82%B9">4. 关于B+树的一些知识点</a></li>
+<li><a href="#23-%E5%B8%B8%E8%A7%81%E7%9A%84%E7%B4%A2%E5%BC%95%E6%A6%82%E5%BF%B5">2.3 常见的索引概念</a></li>
+<li><a href="#1-%E8%81%9A%E7%B0%87%E7%B4%A2%E5%BC%95">1. 聚簇索引</a></li>
+<li><a href="#2-%E9%9D%9E%E8%81%9A%E7%B0%87%E7%B4%A2%E5%BC%95%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95-%E8%BE%85%E5%8A%A9%E7%B4%A2%E5%BC%95">2. 非聚簇索引(二级索引、辅助索引)</a></li>
+<li><a href="#3-%E8%81%94%E5%90%88%E7%B4%A2%E5%BC%95">3. 联合索引</a></li>
+<li><a href="#24-innodb%E7%9A%84b%E6%A0%91%E7%9A%84%E6%B3%A8%E6%84%8F%E4%BA%8B%E9%A1%B9">2.4 InnoDB的B+树的注意事项</a></li>
+</ul>
+</li>
+<li><a href="#3-%E7%B4%A2%E5%BC%95%E7%9A%84%E4%BB%A3%E4%BB%B7">3. 索引的代价</a></li>
+<li><a href="#4-b%E6%A0%91%E5%92%8Cb%E6%A0%91%E7%9A%84%E4%B8%8D%E5%90%8C">4. B树和B+树的不同</a></li>
+<li><a href="#5-%E7%B4%A2%E5%BC%95%E7%9A%84%E5%88%9B%E5%BB%BA%E4%B8%8E%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99">5. 索引的创建与设计原则</a>
+<ul>
+<li><a href="#51-%E7%B4%A2%E5%BC%95%E7%9A%84%E5%A3%B0%E6%98%8E%E4%B8%8E%E4%BD%BF%E7%94%A8">5.1 索引的声明与使用</a></li>
+<li><a href="#1-%E7%B4%A2%E5%BC%95%E7%9A%84%E5%88%86%E7%B1%BB">1. 索引的分类</a></li>
+<li><a href="#52-%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95">5.2 创建索引</a></li>
+<li><a href="#1-%E5%9C%A8%E5%88%9B%E5%BB%BA%E8%A1%A8%E7%9A%84%E6%97%B6%E5%80%99%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95">1. 在创建表的时候创建索引</a></li>
+<li><a href="#2-%E5%9C%A8%E5%B7%B2%E7%BB%8F%E5%AD%98%E5%9C%A8%E7%9A%84%E8%A1%A8%E4%B8%8A%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95">2. 在已经存在的表上创建索引</a></li>
+<li><a href="#3-%E5%88%A0%E9%99%A4%E7%B4%A2%E5%BC%95">3. 删除索引</a></li>
+<li><a href="#53-%E7%B4%A2%E5%BC%95%E7%9A%84%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99">5.3 索引的设计原则</a></li>
+<li><a href="#1-%E5%93%AA%E4%BA%9B%E6%83%85%E5%86%B5%E9%80%82%E5%90%88%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95">1. 哪些情况适合创建索引</a></li>
+<li><a href="#2-%E5%93%AA%E4%BA%9B%E6%83%85%E5%86%B5%E4%B8%8D%E9%80%82%E5%90%88%E5%BB%BA%E7%AB%8B%E7%B4%A2%E5%BC%95">2. 哪些情况不适合建立索引</a></li>
+</ul>
+</li>
+<li><a href="#6-%E7%B4%A2%E5%BC%95%E4%BC%98%E5%8C%96%E4%B8%8E%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96">6. 索引优化与查询优化</a>
+<ul>
+<li><a href="#61-%E7%B4%A2%E5%BC%95%E5%A4%B1%E6%95%88%E6%A1%88%E4%BE%8B">6.1 索引失效案例</a></li>
+<li><a href="#62-%E5%85%B3%E8%81%94%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96">6.2 关联查询优化</a></li>
+<li><a href="#%E5%85%B3%E8%81%94%E4%BC%98%E5%8C%96%E5%B0%8F%E7%BB%93">关联优化小结</a></li>
+<li><a href="#63-%E5%AD%90%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96">6.3 子查询优化</a></li>
+<li><a href="#64-%E6%8E%92%E5%BA%8F%E4%BC%98%E5%8C%96">6.4 排序优化</a></li>
+<li><a href="#65-group-by%E4%BC%98%E5%8C%96">6.5 GROUP BY优化</a></li>
+<li><a href="#66-%E4%BC%98%E5%8C%96%E5%88%86%E9%A1%B5%E6%9F%A5%E8%AF%A2">6.6 优化分页查询</a></li>
+<li><a href="#1-%E4%BC%98%E5%8C%96%E6%80%9D%E8%B7%AF%E4%B8%80">1. 优化思路一</a></li>
+<li><a href="#2-%E4%BC%98%E5%8C%96%E6%80%9D%E8%B7%AF%E4%BA%8C">2. 优化思路二</a></li>
+<li><a href="#67-%E4%BC%98%E5%85%88%E8%80%83%E8%99%91%E8%A6%86%E7%9B%96%E7%B4%A2%E5%BC%95">6.7 优先考虑覆盖索引</a></li>
+<li><a href="#1-%E4%BB%80%E4%B9%88%E6%98%AF%E8%A6%86%E7%9B%96%E7%B4%A2%E5%BC%95">1. 什么是覆盖索引？</a></li>
+<li><a href="#2-%E8%A6%86%E7%9B%96%E7%B4%A2%E5%BC%95%E7%9A%84%E5%88%A9%E5%BC%8A">2. 覆盖索引的利弊</a></li>
+<li><a href="#68-%E7%B4%A2%E5%BC%95%E4%B8%8B%E6%8E%A8">6.8 索引下推</a></li>
+<li><a href="#1-%E4%BD%BF%E7%94%A8icp%E5%89%8D%E5%90%8E%E7%9A%84%E6%95%B0%E6%8D%AE%E7%9A%84%E6%89%AB%E6%8F%8F%E8%BF%87%E7%A8%8B">1. 使用ICP前后的数据的扫描过程</a></li>
+<li><a href="#2-%E4%BD%BF%E7%94%A8icp%E7%9A%84%E6%9D%A1%E4%BB%B6">2. 使用ICP的条件</a></li>
+<li><a href="#3-icp%E4%BD%BF%E7%94%A8%E6%A1%88%E4%BE%8B">3. ICP使用案例</a></li>
+<li><a href="#69-%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E4%B8%8E%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95">6.9 普通索引与唯一索引</a></li>
+<li><a href="#change-buffer%E7%9A%84%E4%BD%BF%E7%94%A8%E5%9C%BA%E6%99%AF">Change Buffer的使用场景</a></li>
+<li><a href="#610-%E5%85%B6%E4%BB%96%E6%9F%A5%E8%AF%A2%E7%9A%84%E4%BC%98%E5%8C%96%E7%AD%96%E7%95%A5">6.10 其他查询的优化策略</a></li>
+<li><a href="#1-exist-%E5%92%8C-in%E7%9A%84%E5%8C%BA%E5%88%86">1. EXIST 和 IN的区分</a></li>
+<li><a href="#2-count%E4%B8%8Ecount%E5%85%B7%E4%BD%93%E5%AD%97%E6%AE%B5%E6%95%88%E7%8E%87">2. COUNT(*)<strong>与</strong>COUNT(<strong>具体字段</strong>)<strong>效率</strong></a></li>
+<li><a href="#3-%E5%85%B3%E4%BA%8Eselect">3. <strong>关于</strong>SELECT(*)</a></li>
+<li><a href="#4-limit-1-%E5%AF%B9%E4%BC%98%E5%8C%96%E7%9A%84%E5%BD%B1%E5%93%8D">4. LIMIT 1 <strong>对优化的影响</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://ruofei-hu.github.io/post/go-slice/">
+              <h3 class="post-title">
+                切片的底层原理和使用方法
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://ruofei-hu.github.io/atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>

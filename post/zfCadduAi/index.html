@@ -1,0 +1,451 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RWMutex的实现原理 | 飞飞的Blog</title>
+<link rel="shortcut icon" href="https://ruofei-hu.github.io/favicon.ico?v=1684694787815">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://ruofei-hu.github.io/styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="RWMutex的实现原理 | 飞飞的Blog - Atom Feed" href="https://ruofei-hu.github.io/atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="
+如果出现排版错乱可以点击我的Notion链接🔗
+
+1.概述
+
+在同步原语中，我们使用Mutex保护临界区的资源安全，在同一时刻，只能允许一个goroutine访问临界区的资源。但是在某些情况下是相对浪费资源。比如在读多写少的情况下。在一..." />
+    <meta name="keywords" content="RWMutex,go,sync" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://ruofei-hu.github.io">
+  <img class="avatar" src="https://ruofei-hu.github.io/images/avatar.png?v=1684694787815" alt="">
+  </a>
+  <h1 class="site-title">
+    飞飞的Blog
+  </h1>
+  <p class="site-description">
+    温故而知新，可以进步矣。
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              RWMutex的实现原理
+            </h2>
+            <div class="post-info">
+              <span>
+                2023-05-19
+              </span>
+              <span>
+                12 min read
+              </span>
+              
+                <a href="https://ruofei-hu.github.io/tag/RufJEkYEp/" class="post-tag">
+                  # RWMutex
+                </a>
+              
+                <a href="https://ruofei-hu.github.io/tag/ohj_y06Gy/" class="post-tag">
+                  # go
+                </a>
+              
+                <a href="https://ruofei-hu.github.io/tag/pxq5pAh5Qy/" class="post-tag">
+                  # sync
+                </a>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <blockquote>
+<p>如果出现排版错乱可以点击<a href="https://ruofei-hu.notion.site/RWMutex-134cf4d5c2984e3682e27a77f435263c">我的Notion链接🔗</a></p>
+</blockquote>
+<h1 id="1概述">1.概述</h1>
+<ol>
+<li>在同步原语中，我们使用Mutex保护临界区的资源安全，在同一时刻，只能允许一个goroutine访问临界区的资源。但是在某些情况下是相对浪费资源。比如在<strong>读多写少</strong>的情况下。在一段时间内没有写的行为，但是存在大量读行为，但是因为在Mutex的保护下可以并发的读操作也成为了串行的读操作，对性能的影响就比较大。</li>
+<li>我们需要区分读写操作，以便于提升性能。当某个读操作goroutine持有了锁🔐，其他读操作也可以拥有锁🔐，一起并发的进行读操作；当某些写操作goroutine持有了锁🔐，这个锁🔐就是个独占锁🔐，或者说是排他锁🔐，其他的读操作和写操作必须等待当前的goroutine释放当前锁之后才可以继续。</li>
+<li>上述的同时存在多个读操作和写操作，但是只要有一个线程在执行写操作，其他线程无论读写都无法执行的的问题称为<a href="https://en.wikipedia.org/wiki/Readers%E2%80%93writers_problem">readers&amp;writers</a>问题。在Go的Sync的库中存在RWMutex的可以用来解决此类问题。</li>
+</ol>
+<h1 id="2何为rwmutex">2.何为RWMutex？</h1>
+<ol>
+<li>RWMutex是一个读写互斥锁🔐。RWMutex在同一时刻，只能被一个writer持有或者被多个reader持有。</li>
+<li>RWMutex的方法集共5个。（ps：在go1.20版本目前方法集为8个）
+<ol>
+<li><strong>Lock\Unlock：写操作时使用的方法</strong>。如果当前的锁已被reader或者writer持有，那么Lock会一直被阻塞，直到能获取到锁。Unlock是Lock的配对的释放锁的方法。</li>
+<li><strong>RLock\RUnLock：读操作时使用的方法</strong>。如果锁已经被writer持有了，RLock方法会一直阻塞，直到能获取到锁🔐，否则就返回；RUnLock是RLock锁配对使用的释放锁的方法</li>
+<li><strong>RLocker：此方法为读操作返回一个Locker接口的对象</strong>。这个对象的Lock方法会调用RWMutex的RLock方法，UnLock方法也是会调用RWMutex的RUnLock方法。</li>
+</ol>
+</li>
+<li>RWMutex的零值是未加锁的状态，当你使用RWMutex的时候，无需显示的初始化。
+<ol>
+<li>
+<p>举个栗子🌰：计数器，count++ 是写操作，获取Count的值是读操作，读操作可以并发读取，写操作只能独占操作，我们可以使用RWMutex来解决这个readers-writers问题。</p>
+<pre><code>package main
+
+import (
+	&quot;sync&quot;
+	&quot;time&quot;
+)
+
+// Counter 定义计数器
+type Counter struct {
+	rwm   sync.RWMutex
+	count uint64
+}
+
+// Incr 写锁保护
+func (c *Counter) Incr() {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	c.count++
+
+}
+
+// GetCount 读锁保护
+func (c *Counter) GetCount() uint64 {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.count
+}
+
+func main() {
+	var counter Counter
+	for i := 0; i &lt; 10; i++ {
+		go func() {
+			for {
+				counter.GetCount()
+				time.Sleep(time.Millisecond)// 每毫秒的竞争
+			}
+		}()
+	}
+
+	for {
+		counter.Incr()
+		time.Sleep(time.Second)// 每秒竞争
+	}
+}
+</code></pre>
+<p>遇到明确可以区分reader和writer的场景，并且存在大量读，少量写和有性能要求，可以考虑使用RWMutex替换Mutex。</p>
+</li>
+</ol>
+</li>
+</ol>
+<h1 id="3rwmutex的实现原理">3.RWMutex的实现原理</h1>
+<ol>
+<li>
+<p>RWMutex是非常的基本并发原语。Go中RWMutex是基于Mutex实现的。前面我们提到RWMutex是解决readers-writers场景的利器，但是readers-writers也分好几种：</p>
+<ul>
+<li>Read-Preferring：读操作优先，可以提供很高的并发性。但是在读锁竞争激烈的情况下可能导致写饥饿。因为有大量的读操作，导致写操作只能在所有读操作释放锁🔐之后才能执行</li>
+<li>Write-Preferring：写操作优先，如果当前锁的waitlist存在一个写操作等到，那么后续的reader将会被阻止获取到锁，优先writer获取锁🔐。如果之前的reader已经获取到锁🔐，那么writer页只能等待reader释放锁🔐之后才能获取锁。写操作优先，只是真多后续的新请求而言，这种设计避免写饥饿。</li>
+<li>不指定优先级：不区分写操作和读操作的优先级</li>
+</ul>
+</li>
+<li>
+<p>Go中的RWMutex的设计方案是Writer-Preferring。RWMutex中包含五个字段</p>
+<pre><code>type RWMutex struct {
+	w           Mutex        // held if there are pending writers
+	writerSem   uint32       // semaphore for writers to wait for completing readers
+	readerSem   uint32       // semaphore for readers to wait for completing writers
+	readerCount atomic.Int32 // number of pending readers
+	readerWait  atomic.Int32 // number of departing readers
+}
+
+const rwmutexMaxReaders = 1 &lt;&lt; 30
+</code></pre>
+<ul>
+<li>w: 为了解决Writer竞争锁而设计</li>
+<li>writerSem和readerSem：为了阻塞设计的信号量</li>
+<li>readerCount：当前待处理的reader的数量以及是否存在Writer等待锁🔐</li>
+<li>readerWait：记录Writer在能获取到锁之前还剩余的reader的数量</li>
+<li>rwmutexMaxReaders：定义了reader的最大数量</li>
+</ul>
+</li>
+<li>
+<p>RLock和RUnLock的实现</p>
+<pre><code> 1. func (rw *RWMutex) RLock() {
+ 2.     if race.Enabled {
+ 3.         _ = rw.w.state
+ 4.         race.Disable()
+ 5.     }
+ 6.
+ 7.     if rw.readerCount.Add(1) &lt; 0 {
+ 8.         // A writer is pending, wait for it.
+ 9.         // 当readerCount为负值表示存在Writer等待锁，因为是写操作优先，所以后续新来reader需要通过readerSem信号量阻塞休眠
+10.         runtime_SemacquireRWMutexR(&amp;rw.readerSem, false, 0)
+11.     }
+12.
+13.     if race.Enabled {
+14.         race.Enable()
+15.         race.Acquire(unsafe.Pointer(&amp;rw.readerSem))
+16.     }
+17. }
+18.
+19. func (rw *RWMutex) RUnlock() {
+20.     if race.Enabled {
+21.         _ = rw.w.state
+22.         race.ReleaseMerge(unsafe.Pointer(&amp;rw.writerSem))
+23.         race.Disable()
+24.     }
+25.     if r := rw.readerCount.Add(-1); r &lt; 0 {
+26.         // Outlined slow-path to allow the fast-path to be inlined
+27.         rw.rUnlockSlow(r)
+28.     }
+29.     if race.Enabled {
+30.         race.Enable()
+31.     }
+32. }
+33.
+34. func (rw *RWMutex) rUnlockSlow(r int32) {
+35.     if r+1 == 0 || r+1 == -rwmutexMaxReaders {
+36.         race.Enable()
+37.         fatal(&quot;sync: RUnlock of unlocked RWMutex&quot;)
+38.     }
+39.     // A writer is pending.
+40.     if rw.readerWait.Add(-1) == 0 {
+41.         // The last reader unblocks the writer.
+42.         runtime_Semrelease(&amp;rw.writerSem, false, 1)
+43.     }
+44. }
+
+</code></pre>
+<p>第7行是对reader进行加一操作。readerCount有双重含义：</p>
+<ul>
+<li>当没有Writer等待锁或者持有锁时，readerCount就是一个单纯的reader计数器；</li>
+<li>当Writer等待锁或者持有锁🔐时，readerCount不仅仅表示reader的数量，还可以表示当前是否有Writer等待锁或者持有锁，如果存在，则后续的新请求的readers就会如第十行，进入到阻塞状态，毕竟是Writer-Preferring。</li>
+</ul>
+<p>当调用RUnLock的时候，reader的数量减少，所以我们需要将reader的计数进行减一操作。但是第25行的Add的返回值如果是负值的情况下，那就代表当前有Writer竞争锁，在有Writer竞争锁的情况下，就会调用rUnlockSlow方法，先检查reader是都全部都释放锁，如果全部释放锁了，那么就唤醒等待锁的Writer。</p>
+<p>当一个reader或者多个reader持有锁🔐时，请求锁的Writer会等待这些reader全部释放锁后，才可以去持有这把锁🔐。Writer-preferring只是规定在Writer之后到来reader不可以和Writer竞争锁，对既有的reader的现状是没有权限改变的。rUnlockSlow将持有锁的reader数量减一，然后检查在Writer之前的reader是否全部释放了锁🔐，如果是，那么将会唤醒Writer，让Writer持有锁🔐。</p>
+</li>
+<li>
+<p>Lock的实现</p>
+<ol>
+<li>RWMutex是解决readers-writers问题的，所以会同时存在多个reader和多个Writer竞争锁。但是reader之间可以并发的执行，但是Writer之间不行，Writer之间是具有排他性的。所有RWMutex结构体中的第一个字段Mutex就是为了解决Writer之间的竞争的.</li>
+<li>一旦其中的一个Writer获得结构体内部的Mutex互斥锁，就会讲原本的readerCount进行反转，将readerCount从整数变为（readerCount-rwmutexMaxReaders），使readerCount既保存了readerCount的数量也标识了当前存在Writer竞争锁🔐</li>
+<li></li>
+</ol>
+<pre><code>func (rw *RWMutex) Lock() {
+	if race.Enabled {
+		_ = rw.w.state
+		race.Disable()
+	}
+
+	// First, resolve competition with other writers. 使用w互斥锁先解决Writer之间的竞争
+	rw.w.Lock()
+	// Announce to readers there is a pending writer. 反转readerCount，同时向reader宣告有请求锁的Writer存在
+	r := rw.readerCount.Add(-rwmutexMaxReaders) + rwmutexMaxReaders // 持有锁但还未释放的reader
+	// Wait for active readers. 如果当前的锁在reader手中持有，那么Writer还需要进行等待
+	if r != 0 &amp;&amp; rw.readerWait.Add(r) != 0 { // 如果当前的readerCount不是0，就表明当前存在活跃的reader，就需要把readerCount赋值给readerWait保存下来，然后Writer进入到阻塞等待的状态。
+		runtime_SemacquireRWMutex(&amp;rw.writerSem, false, 0)
+	}
+
+	if race.Enabled {
+		race.Enable()
+		race.Acquire(unsafe.Pointer(&amp;rw.readerSem))
+		race.Acquire(unsafe.Pointer(&amp;rw.writerSem))
+	}
+}
+</code></pre>
+<p>当每个reader调用RUnlock的时候，readerWait的计数会减一，直到当前活跃的reader（在Writer之前的既有的reader）的数量减至为零，将会唤醒Writer。</p>
+</li>
+<li>
+<p>Unlock的实现</p>
+<ol>
+<li>当Writer释放锁🔐的时候，会再次将readerCount这个数值进行翻转，即重新加上rwmutexMaxReaders这个值。Writer释放锁🔐之后，将会唤醒后续竞争锁🔐的reader，继续执行下去。当前的Writer需要进行Unlock将临界区的所有权归还（也就是需要将锁🔐释放），以便于其他的Writer后续可以进行竞争</li>
+<li></li>
+</ol>
+<pre><code>func (rw *RWMutex) Unlock() {
+	if race.Enabled {
+		_ = rw.w.state
+		race.Release(unsafe.Pointer(&amp;rw.readerSem))
+		race.Disable()
+	}
+
+	// Announce to readers there is no active writer.
+	// 告知reader当前已无活跃的Writer
+	r := rw.readerCount.Add(rwmutexMaxReaders)
+	if r &gt;= rwmutexMaxReaders {
+		race.Enable()
+		fatal(&quot;sync: Unlock of unlocked RWMutex&quot;)
+	}
+	// Unblock blocked readers, if any.
+	// 唤醒阻塞的reader
+	for i := 0; i &lt; int(r); i++ {
+		runtime_Semrelease(&amp;rw.readerSem, false, 0)
+	}
+	// Allow other writers to proceed.
+	// 释放锁，使后续的Writer可以竞争锁
+	rw.w.Unlock()
+
+	if race.Enabled {
+		race.Enable()
+	}
+}
+</code></pre>
+<p>c. RWMutex的注意事项</p>
+<ol>
+<li>不可复制。因为锁🔐都是具有状态的，如果复制一个锁，会连同当前锁🔐内部的状态也一同复制去。</li>
+<li>不可重入锁🔐。读写锁因为重入锁🔐或者递归调用会导致死锁🔐。
+<ol>
+<li>
+<p>重入导致死锁的问题。因为读写锁是基于互斥锁实现的，因为互斥锁重入会导致死锁问题，所以当Writer重入Lock的时候，也会产生这个问题。</p>
+<pre><code>func test1(mutex *sync.RWMutex) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	fmt.Println(&quot;this is test1&quot;)
+}
+
+func test2(mutex *sync.RWMutex) {
+	fmt.Println(&quot;thist is test2&quot;)
+	mutex.Lock()
+	defer mutex.Unlock()
+	test1(mutex)
+}
+
+func main() {
+	rwMutex := &amp;sync.RWMutex{}
+	test2(rwMutex)
+}
+</code></pre>
+</li>
+<li>
+<p>还有一种就是在读操作中嵌入写操作。前面的有写到，当存在活跃的reader的时候，Writer必须等待活跃的reader全部释放完后，才可以进行持有锁，但是如果在reader中嵌入Writer，reader想等待Writer执行完成后才释放锁，但是Writer需要等待活跃的reader释放锁后才可以用有锁才可以继续执行，就形成了互相依赖，就会造成死锁状态。</p>
+</li>
+<li>
+<p>再者就是上述版本的加强版，就是Writer依赖readerA，这个readerA依赖readerB，但是readerB中嵌套着writer，然后形成相互依赖，就会造成死锁现象。</p>
+</li>
+</ol>
+</li>
+<li>Unlock位解锁的RWMutex，会造成panic。Lock和Unlock，以及RLock和RUnlock成对出现可以避免遗漏，避免重复Unlocker造成的panic</li>
+</ol>
+</li>
+</ol>
+<h1 id="总结">总结</h1>
+<p>在日常的开发过程中，我们遇到临界区资源需要保护的时候，优先考虑Mutex的，因为我们并不清楚后续的设计将会如何演变，等到后期业务逐渐成熟，需要做进一步的性能提升的时候，我们可以用读写锁进一步提升性能。但是如果你一开始就目的明确，比如你知道遇到的就是明确的readers-writers问题或者并发安全的map可以直接采用读写锁。并且在Sync中有并发安全的sync.map。Enjoy it…..</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li><a href="#1%E6%A6%82%E8%BF%B0">1.概述</a></li>
+<li><a href="#2%E4%BD%95%E4%B8%BArwmutex">2.何为RWMutex？</a></li>
+<li><a href="#3rwmutex%E7%9A%84%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86">3.RWMutex的实现原理</a></li>
+<li><a href="#%E6%80%BB%E7%BB%93">总结</a></li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://ruofei-hu.github.io/post/go-Mutex-evl/">
+              <h3 class="post-title">
+                Mutex演化史
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://ruofei-hu.github.io/atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>

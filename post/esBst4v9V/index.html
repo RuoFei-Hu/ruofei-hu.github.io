@@ -1,0 +1,356 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WaitGroup: 任务编排利器 | 飞飞的Blog</title>
+<link rel="shortcut icon" href="https://ruofei-hu.github.io/favicon.ico?v=1684694787815">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://ruofei-hu.github.io/styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="WaitGroup: 任务编排利器 | 飞飞的Blog - Atom Feed" href="https://ruofei-hu.github.io/atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="
+如果出现排版错乱可以点击我的Notion链接🔗
+
+1.概述
+WaitGroup是Sync中用作任务编排的并发原语。主要解决的就是并发-等待的问题：如果有一个goroutineA在checkpoint等待一组goroutine完成任务，如..." />
+    <meta name="keywords" content="WaitGroup,go,sync" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://ruofei-hu.github.io">
+  <img class="avatar" src="https://ruofei-hu.github.io/images/avatar.png?v=1684694787815" alt="">
+  </a>
+  <h1 class="site-title">
+    飞飞的Blog
+  </h1>
+  <p class="site-description">
+    温故而知新，可以进步矣。
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              WaitGroup: 任务编排利器
+            </h2>
+            <div class="post-info">
+              <span>
+                2023-05-22
+              </span>
+              <span>
+                6 min read
+              </span>
+              
+                <a href="https://ruofei-hu.github.io/tag/4xGERmKsX/" class="post-tag">
+                  # WaitGroup
+                </a>
+              
+                <a href="https://ruofei-hu.github.io/tag/ohj_y06Gy/" class="post-tag">
+                  # go
+                </a>
+              
+                <a href="https://ruofei-hu.github.io/tag/pxq5pAh5Qy/" class="post-tag">
+                  # sync
+                </a>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <blockquote>
+<p>如果出现排版错乱可以点击<a href="https://www.notion.so/ruofei-hu/WaitGroup-853962a4bf3949cc9f8fb5705baeea83?pvs=4">我的Notion链接🔗</a></p>
+</blockquote>
+<h1 id="1概述">1.概述</h1>
+<p>WaitGroup是Sync中用作任务编排的并发原语。主要解决的就是并发-等待的问题：如果有一个goroutineA在checkpoint等待一组goroutine完成任务，如果这些goroutine的任务还没全部完成，那么goroutineA就需要在checkpoint处阻塞等待，直到这组goroutine全部完成任务，才能继续执行。</p>
+<h1 id="2waitgroup的基本用法">2.WaitGroup的基本用法</h1>
+<ol>
+<li>
+<p>在Go的Sync中WaitGroup提供了三个方法：</p>
+<pre><code>func (wg *WaitGroup) Add(delta int)
+func (wg *WaitGroup) Done()
+func (wg *WaitGroup) Wait()
+</code></pre>
+<ul>
+<li>Add：用来操作（增加或者减少）WaitGroup计数器的数值</li>
+<li>Done：用来减少WaitGroup计数器的数值，其实内部就是调用了Add(-1)，有意思吧🥳，哈哈哈</li>
+<li>Wait：在WaitGroup计数器的数值不为零之前，调用Wait的goroutine会一直阻塞</li>
+</ul>
+</li>
+<li>
+<p>老规矩，举个栗子🌰：</p>
+<pre><code>// Counter 并发安全的计数器
+type Counter struct {
+	mu    sync.Mutex
+	count uint64
+}
+
+// Incr 对计数器加一
+func (c *Counter) Incr() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+}
+
+// GetCount 获取计数器的值
+func (c *Counter) GetCount() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+// Worker 打工人
+func Worker(c *Counter, wg *sync.WaitGroup) {
+	defer wg.Done()
+	c.Incr()
+	time.Sleep(time.Second)
+}
+
+func main() {
+	var counter Counter
+	var wg sync.WaitGroup
+
+	for i := 0; i &lt; 10; i++ {
+		wg.Add(1)
+		go Worker(&amp;counter, &amp;wg)
+	}
+	wg.Wait()
+	fmt.Println(counter.GetCount())
+}
+</code></pre>
+<p>我们在main函数中通过for循环使用Add为WaitGroup的计数器添加了10个任务，同时也生成了10个goroutine区执行对Counter加一的任务。在worker中，每完成一个任务就会调用Done函数进行wg的计数器进行减一。因为我们在main函数中调用了wg.Wait，所在在wg的计数器值变为0之前，程序都会阻塞到当前的位置，直到10个goroutine都完成了对Count的加一任务，程序才会继续执行下去，输入当前Count的值。</p>
+</li>
+</ol>
+<h1 id="3waitgroup的实现">3.WaitGroup的实现</h1>
+<ol>
+<li></li>
+</ol>
+<pre><code>type WaitGroup struct {
+	noCopy noCopy
+
+	state atomic.Uint64 // high 32 bits are counter, low 32 bits are waiter count.
+	sema  uint32
+}
+</code></pre>
+<ul>
+<li>npCopy字段：主要是为了复制vet工具检测是否有通过复制WaitGroup这个实例的</li>
+<li>state字段：高32位是计数器，低32位是waiter的计数</li>
+<li>sema字段：信号量</li>
+</ul>
+<p>b. Add的实现逻辑</p>
+<pre><code>func (wg *WaitGroup) Add(delta int) {
+.......
+	state := wg.state.Add(uint64(delta) &lt;&lt; 32)// 高32位是Count 就是V
+	v := int32(state &gt;&gt; 32) // 计数器
+	w := uint32(state) // waiter
+	if race.Enabled &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
+		// The first increment must be synchronized with Wait.
+		// Need to model this as a read, because there can be
+		// several concurrent wg.counter transitions from 0.
+		race.Read(unsafe.Pointer(&amp;wg.sema))
+	}
+	if v &lt; 0 {
+		panic(&quot;sync: negative WaitGroup counter&quot;)
+	}
+	if w != 0 &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
+		panic(&quot;sync: WaitGroup misuse: Add called concurrently with Wait&quot;)
+	}
+	if v &gt; 0 || w == 0 {
+		return
+	}
+	// This goroutine has set counter to 0 when waiters &gt; 0.
+	// Now there can't be concurrent mutations of state:
+	// - Adds must not happen concurrently with Wait,
+	// - Wait does not increment waiters if it sees counter == 0.
+	// Still do a cheap sanity check to detect WaitGroup misuse.
+	if wg.state.Load() != state {
+		panic(&quot;sync: WaitGroup misuse: Add called concurrently with Wait&quot;)
+	}
+	// Reset waiters count to 0.
+	wg.state.Store(0)
+	for ; w != 0; w-- {
+		runtime_Semrelease(&amp;wg.sema, false, 0)
+	}
+}
+</code></pre>
+<p>Add实现：主要通过内部的原子操作，将数值delta加到高32位的计数器V上，w是waiter的值。</p>
+<p>Wait的实现逻辑</p>
+<pre><code>func (wg *WaitGroup) Wait() {
+	if race.Enabled {
+		race.Disable()
+	}
+	for {
+		state := wg.state.Load()
+		v := int32(state &gt;&gt; 32)
+		w := uint32(state)
+		if v == 0 {
+			// Counter is 0, no need to wait.
+			// 如果计数器为零，就无需等待，继续执行后续的逻辑即可
+			if race.Enabled {
+				race.Enable()
+				race.Acquire(unsafe.Pointer(wg))
+			}
+			return
+		}
+		// Increment waiters count.
+		// 否则就把waiter的数量加一，在此期间可能存在并发调用wait的情况，所以在最外层使用了一个for循环
+		if wg.state.CompareAndSwap(state, state+1) {
+			if race.Enabled &amp;&amp; w == 0 {
+				// Wait must be synchronized with the first Add.
+				// Need to model this is as a write to race with the read in Add.
+				// As a consequence, can do the write only for the first waiter,
+				// otherwise concurrent Waits will race with each other.
+				race.Write(unsafe.Pointer(&amp;wg.sema))
+			}
+			runtime_Semacquire(&amp;wg.sema)// 阻塞休眠
+			if wg.state.Load() != 0 {
+				panic(&quot;sync: WaitGroup is reused before previous Wait has returned&quot;)
+			}
+			if race.Enabled {
+				race.Enable()
+				race.Acquire(unsafe.Pointer(wg))
+			}
+			// 被唤醒，不在阻塞，返回
+			return
+		}
+	}
+}
+</code></pre>
+<p>Wait的主要逻辑：就是不断的检查state的值，如果其中计数器的值为0，那么说明任务已经完成了，就无需再等待，直接返回即可；如果计数器的值大于零，那么说明任务还没有完成，那么调用者就变成了waiter，就需要加入到waiter的队列中，并且进入到阻塞的状态。</p>
+<h1 id="4waitgroup的注意事项">4.WaitGroup的注意事项</h1>
+<ol>
+<li>WaitGroup的计数值不能为负数：
+<ol>
+<li>在调用Add方法是，给予参数一个负值，程序会直接panic</li>
+<li>调用Done放的次数超过应有的计数器值，我们知道Done方法的本身就是Add(-1)</li>
+</ol>
+</li>
+<li>Add方法的调用需要再Wait方法之前，且不要在子的goroutine的内调用Add方法，因为这会导致Add和Wait的先后顺序方式变化，他们两之间，是有严格的先后顺序的</li>
+<li>WaitGroup重用问题：WaitGroup是可以重复使用的，当计数器归零，可以算作是一个新的，但是如果先前的一轮还没结束，后续新的就调用Add方法，会导致计数器为为负值，直接panic。所以一般情况下，尽量不要重用WaitGroup，新建一个开销也很小</li>
+</ol>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li><a href="#1%E6%A6%82%E8%BF%B0">1.概述</a></li>
+<li><a href="#2waitgroup%E7%9A%84%E5%9F%BA%E6%9C%AC%E7%94%A8%E6%B3%95">2.WaitGroup的基本用法</a></li>
+<li><a href="#3waitgroup%E7%9A%84%E5%AE%9E%E7%8E%B0">3.WaitGroup的实现</a></li>
+<li><a href="#4waitgroup%E7%9A%84%E6%B3%A8%E6%84%8F%E4%BA%8B%E9%A1%B9">4.WaitGroup的注意事项</a></li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://ruofei-hu.github.io/post/zfCadduAi/">
+              <h3 class="post-title">
+                RWMutex的实现原理
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://ruofei-hu.github.io/atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
